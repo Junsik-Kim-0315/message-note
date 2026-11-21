@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="말씀 정리">
+<meta name="theme-color" content="#1f5f45">
+<title>말씀 정리</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">말씀 정리</div>
+  <div class="status" id="status">대기 중</div>
+  <button class="icon-btn" id="btnSettings">설정</button>
+</header>
+
+<main>
+  <section class="card" id="metaCard">
+    <div class="row">
+      <label>예배
+        <select id="serviceType">
+          <option>주일예배</option><option>주일 오후예배</option><option>수요예배</option>
+          <option>금요기도회</option><option>새벽기도</option><option>특별집회</option><option>기타</option>
+        </select>
+      </label>
+      <label>설교자<input id="preacher" placeholder="예: 김OO 목사"></label>
+    </div>
+    <label>제목 (모르면 비워두세요)<input id="sermonTitle" placeholder="자동으로 추정해요"></label>
+  </section>
+
+  <section class="recbar">
+    <button id="btnRec" class="rec-btn"><span class="dot"></span><span id="recLabel">녹음 시작</span></button>
+    <div class="timer" id="timer">00:00</div>
+  </section>
+  <p class="hint" id="hint">녹음 중에는 화면을 켜 둔 채로 두세요. 아이폰은 화면이 꺼지면 녹음이 멈춰요.</p>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="live">실시간 정리</button>
+    <button class="tab" data-tab="transcript">받아쓰기</button>
+    <button class="tab" data-tab="result">최종 정리</button>
+  </nav>
+
+  <section class="panel active" id="panel-live">
+    <div class="empty" id="liveEmpty">녹음을 시작하면 몇 분마다 지금까지의 흐름이 여기에 정리돼요.</div>
+    <div id="liveView"></div>
+  </section>
+
+  <section class="panel" id="panel-transcript">
+    <div class="empty" id="trEmpty">받아쓴 내용이 30초 단위로 여기에 쌓여요.</div>
+    <div id="trList"></div>
+    <div id="trEditWrap" hidden>
+      <p class="hint">녹음이 끝난 뒤에는 받아쓰기를 직접 고칠 수 있어요. 고친 뒤 '최종 정리 만들기'를 누르세요.</p>
+      <textarea id="trEdit" rows="14"></textarea>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-result">
+    <div class="empty" id="resEmpty">녹음을 마치면 서론·본론·결론으로 정리된 결과가 여기에 나와요.</div>
+    <div class="actions" id="resActions" hidden>
+      <button id="btnFinal" class="btn">최종 정리 다시 만들기</button>
+      <button id="btnDrive" class="btn primary">구글 드라이브에 저장</button>
+      <button id="btnShare" class="btn">PDF 공유·내려받기</button>
+    </div>
+    <div id="saveInfo" class="hint"></div>
+    <div id="docPreview" class="doc-preview"></div>
+  </section>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" class="settings">
+    <h2>설정</h2>
+    <label>Gemini API 키
+      <input id="cfgKey" type="password" autocomplete="off" placeholder="AIza...">
+    </label>
+    <p class="hint">키는 이 기기 안에만 저장되고 어디에도 올라가지 않아요.</p>
+    <label>받아쓰기 모델<input id="cfgSttModel" placeholder="gemini-2.5-flash"></label>
+    <label>정리·분석 모델<input id="cfgAnaModel" placeholder="gemini-2.5-flash"></label>
+    <label>실시간 정리 간격(분)<input id="cfgLiveMin" type="number" min="1" max="15" step="1"></label>
+    <div class="row">
+      <button type="button" id="btnGoogle" class="btn">구글 드라이브 연결</button>
+      <span id="googleState" class="hint"></span>
+    </div>
+    <div class="row end">
+      <button type="button" id="btnTest" class="btn">Gemini 연결 확인</button>
+      <button value="ok" id="btnSaveCfg" class="btn primary">저장</button>
+    </div>
+    <p class="hint" id="testState"></p>
+  </form>
+</dialog>
+
+<div id="pdfStage" aria-hidden="true"></div>
+<div id="toast" role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="markup.js"></script>
+<script src="pdf.js"></script>
+<script src="drive.js"></script>
+<script src="gemini.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

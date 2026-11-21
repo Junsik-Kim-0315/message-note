@@ -1,0 +1,9 @@
+{
+  "name": "말씀 정리",
+  "short_name": "말씀 정리",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#1f5f45",
+  "icons": [{ "src": "icon.png", "sizes": "512x512", "type": "image/png" }]
+}
