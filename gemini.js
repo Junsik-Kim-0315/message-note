@@ -168,7 +168,7 @@ ${window.MN_TERMS ? `- 이전에 자주 잘못 받아쓴 말(잘못→바름): $
 예배: ${meta.service_type || ''} / 설교자: ${meta.preacher || ''} / 본문 말씀: ${meta.scripture || '(미입력)'}
 본문 말씀이 주어졌으면 그 본문의 내용과 문맥을 바탕으로 흐름을 이해하세요.
 
-지금까지의 흐름을 JSON으로 정리하세요. 들은 내용에 없는 것은 지어내지 마세요.
+지금까지의 흐름을 JSON으로 정리하세요. 들은 내용에 없는 것은 지어내지 마세요. 앞뒤 맥락을 보고 설교의 핵심(많이 반복되고 힘준 말)으로 이어지는 내용을 중심으로 쓰고, 교회 운영·농담처럼 핵심과 이어지지 않는 곁가지는 빼세요.
 {
  "title_guess": "추정 설교 제목",
  "scripture": ["본문·인용 구절"],
@@ -503,12 +503,13 @@ ${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, secti
   // 한 문단 정리: 이미 만든 설교 노트(없으면 정리본)를 바탕으로 같은 우선순위로 한 문단만 쓴다
   async function paragraph(cfg, meta, notes, doc) {
     const theme = (notes && notes.central_theme) || doc?._theme || '';
-    const src = notes ? { big_idea: notes.big_idea, central_theme: notes.central_theme, flow3: notes.flow3, theme_notes: notes.theme_notes, contrast: notes.contrast, text_keys: notes.text_keys, emphasized: notes.emphasized, christ_side: notes.christ_side, spiritual_warfare: notes.spiritual_warfare, points: notes.points, conclusion: notes.conclusion }
+    const src = notes ? { big_idea: notes.big_idea, central_theme: notes.central_theme, flow3: notes.flow3, stated_core: notes.stated_core, sections: (notes.sections || []).filter((x) => !/곁가지/.test(x.role || '')), theme_notes: notes.theme_notes, contrast: notes.contrast, text_keys: notes.text_keys, emphasized: notes.emphasized, christ_side: notes.christ_side, spiritual_warfare: notes.spiritual_warfare, points: notes.points, conclusion: notes.conclusion }
       : { title: doc.title, one_line: doc.one_line, summary: doc.summary, intro: doc.intro, body: doc.body, conclusion: doc.conclusion };
     const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래 설교 자료를 '한 문단'으로 정리하세요.
 ${infoLine(meta)}
 우선순위:
 0. 문단은 설교의 실제 흐름 세 단계로 이어 씁니다: 하나님이 이미 해 주신 것(받은 은혜·복음의 사실) → 무엇에 빠져 하나님을 잃어버리고 어떻게 돌이켜 싸워 이기는가 → 그리하여 어떤 삶을 사는가. 설교 노트의 flow3와 sections를 따르세요.
+0-1. 설교 전체의 맥락과 흐름에서 핵심으로 이어지는 내용만 쓰세요. 예화는 핵심과 어떻게 이어지는지가 드러날 때만 넣고, 핵심과 이어지지 않는 곁가지는 빼세요.
 1. 설교의 중심 주제${theme ? `「${theme}」` : ''}를 첫 문장에 넣으세요. 제목 낱말과 실제 흐름이 다르면 실제 흐름을 따르세요.
 2. 말씀은 언제나 그리스도(복음, 창 3:15, 영적인 것, 영적 싸움)와 마귀(사단, 요 8:44, 육신, 뱀)의 대립과 싸움입니다. 이 설교에서 그 대립이 무엇인지 드러내세요.
 3. 본문 핵심 언어와 많이 반복·강조된 말을 살리세요.
