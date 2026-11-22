@@ -67,6 +67,27 @@
     persist(); store.set('mn_lastmeta', { service_type: $('serviceType').value, preacher: $('preacher').value.trim() });
   }));
 
+  // ---------- 진행 단계 표시 ----------
+  // 0 녹음 · 1 받아쓰기 · 2 정리 · 3 저장 / state: idle, active, done, error
+  const STEP_NAMES = ['녹음', '받아쓰기', '정리', '저장'];
+  let steps = ['idle', 'idle', 'idle', 'idle'];
+  function flow(i, state, title, detail = '') {
+    if (state === 'active' || state === 'error') for (let k = i + 1; k < 4; k++) steps[k] = 'idle';
+    steps[i] = state;
+    for (let k = 0; k < i; k++) if (steps[k] !== 'done' && state !== 'error') steps[k] = 'done';
+    $('steps').innerHTML = steps.map((s, k) => `<li class="st ${s}"><span class="b">${s === 'done' ? '✓' : s === 'error' ? '!' : k + 1}</span>${STEP_NAMES[k]}</li>`).join('');
+    if (title) {
+      const kind = state === 'error' ? 'error' : state === 'active' ? 'active' : 'done';
+      $('banner').className = `banner ${kind}`;
+      $('banner').hidden = false;
+      $('bannerTitle').textContent = (kind === 'done' ? '✓ ' : kind === 'error' ? '✕ ' : '') + title;
+      $('bannerDetail').textContent = detail;
+      setStatus(title);
+      if (kind === 'done' && navigator.vibrate) navigator.vibrate(200);
+    }
+  }
+  function resetFlow() { steps = ['idle', 'idle', 'idle', 'idle']; $('steps').innerHTML = ''; $('banner').hidden = true; flow(0, 'idle'); }
+
   // ---------- 받아쓰기 목록 ----------
   const transcriptText = () => S.segments.filter((s) => (s.status === 'done' || s.status === 'gap') && s.text).map((s) => s.text).join('\n');
 
@@ -251,7 +272,7 @@
     catch (e) { rec = null; toast('마이크를 쓸 수 없어요. Safari 설정에서 마이크를 허용해 주세요.', 4000); return; }
     lockScreen();
     $('btnRec').classList.add('on'); $('recLabel').textContent = '녹음 끝내기';
-    setStatus('녹음 중');
+    flow(0, 'active', '녹음 중', '화면을 켜 둔 채로 두세요');
     tick = setInterval(() => {
       $('timer').textContent = fmt(elapsedNow());
       // 화면은 켜져 있는데 소리가 안 들어오면 다시 연다
@@ -266,7 +287,7 @@
   function confirmNew() {
     if (!(S.final || S.segments.length)) return true;
     if (confirm('이전 내용이 있어요. 지우고 새로 시작할까요?\n(취소하면 이어서 진행해요)')) {
-      S = emptySession(); S.meta = { date: today() }; wavs.clear(); pdfCache = null; segCounter = 0; liveLen = 0;
+      S = emptySession(); S.meta = { date: today() }; wavs.clear(); pdfCache = null; segCounter = 0; liveLen = 0; resetFlow();
       renderAll();
     }
     return true;
@@ -281,7 +302,7 @@
     clearInterval(tick); clearInterval(liveTimer);
     try { await wakeLock?.release(); } catch (e) {} wakeLock = null;
     $('btnRec').classList.remove('on'); $('recLabel').textContent = '이어서 녹음';
-    setStatus('받아쓰기 마무리 중');
+    flow(0, 'done', '녹음 완료', '남은 받아쓰기를 마무리하고 있어요'); flow(1, 'active');
     persist();
     await queue;
     renderAll();
@@ -317,7 +338,7 @@
     showTab('transcript');
     lockScreen();
     if (file.size > BIG_FILE) return processBigFile(file);
-    setStatus('녹음 파일 여는 중');
+    flow(0, 'active', '녹음 파일 여는 중', file.name);
     let audio;
     try {
       const buf = await file.arrayBuffer();
@@ -367,11 +388,12 @@
   }
   async function processBigFile(file) {
     const total = await audioDuration(file);
-    if (!total) { setStatus('대기 중'); toast('녹음 파일 길이를 읽지 못했어요. 음성 메모(m4a)나 mp3 파일을 올려주세요.', 5000); return; }
+    if (!total) { flow(0, 'error', '녹음 파일을 열지 못했어요', '음성 메모(m4a)나 mp3 파일인지 확인해 주세요'); toast('녹음 파일 길이를 읽지 못했어요. 음성 메모(m4a)나 mp3 파일을 올려주세요.', 5000); return; }
     let ref;
     try {
-      ref = await Gemini.uploadFile(cfg, file, (p) => setStatus(`녹음 파일 올리는 중 ${Math.round(p * 100)}%`));
-    } catch (e) { setStatus('대기 중'); toast(e.message, 5000); return; }
+      flow(0, 'active', '녹음 파일 올리는 중 0%', '와이파이에서 화면을 켜 둔 채로 기다려 주세요');
+      ref = await Gemini.uploadFile(cfg, file, (p) => flow(0, 'active', `녹음 파일 올리는 중 ${Math.round(p * 100)}%`, p >= 1 ? 'Gemini가 파일을 처리하고 있어요' : '와이파이에서 화면을 켜 둔 채로 기다려 주세요'));
+    } catch (e) { flow(0, 'error', '녹음 파일 올리기 실패', e.message); toast(e.message, 5000); return; }
     S.elapsed = Math.max(S.elapsed || 0, total);
     $('timer').textContent = fmt(total);
     const list = [];
@@ -387,7 +409,8 @@
   async function runFileSegments(list) {
     renderSegments(); persist();
     let done = 0;
-    const update = () => setStatus(`파일 받아쓰기 ${done}/${list.length}`);
+    flow(0, 'done', '녹음 파일 올리기 완료');
+    const update = () => flow(1, 'active', `받아쓰기 ${done}/${list.length}`, '화면을 켜 둔 채로 기다려 주세요');
     update();
     // 3개씩 동시에 받아쓰기
     let next = 0;
@@ -448,11 +471,11 @@
   async function makeFinal() {
     const edited = $('trEditWrap').hidden ? '' : $('trEdit').value.trim();
     const text = edited || transcriptText();
-    if (text.length < 50) { setStatus('대기 중'); toast('받아쓴 내용이 너무 적어서 정리할 수 없어요.'); return; }
+    if (text.length < 50) { flow(1, 'error', '받아쓴 내용이 너무 적어요', '녹음이 제대로 됐는지 받아쓰기 탭에서 확인해 주세요'); toast('받아쓴 내용이 너무 적어서 정리할 수 없어요.'); return; }
     if (finalBusy) return;
     finalBusy = true;
     showTab('result');
-    setStatus('최종 정리 중 (1~2분)');
+    flow(1, 'done'); flow(2, 'active', '최종 정리 중', '설교 전체를 다시 읽고 있어요 (1~2분)');
     $('resEmpty').hidden = false; $('resEmpty').textContent = '설교 전체를 다시 읽고 정리하고 있어요. 1~2분 걸려요.';
     try {
       const meta = readMeta();
@@ -467,11 +490,11 @@
       if (!meta.scripture && doc.scripture_main) $('sermonText').value = doc.scripture_main;
       persist();
       await renderFinal();
-      setStatus('정리 완료');
+      flow(2, 'done', '정리 완료', '아래에서 확인하고 드라이브에 저장하세요');
     } catch (e) {
       $('resEmpty').textContent = `정리하지 못했어요: ${e.message}`;
       $('resActions').hidden = false;
-      setStatus('정리 실패');
+      flow(2, 'error', '정리 실패', e.message);
     }
     finalBusy = false;
   }
@@ -489,9 +512,9 @@
 
   async function getPdf() {
     if (!pdfCache) {
-      setStatus('PDF 만드는 중');
+      flow(3, 'active', 'PDF 만드는 중');
       pdfCache = await SermonPdf.toPdfBlob(S.final, $('pdfStage'));
-      setStatus('정리 완료');
+      flow(3, 'idle', '정리 완료', '아래에서 확인하고 드라이브에 저장하세요');
     }
     return pdfCache;
   }
@@ -505,12 +528,12 @@
     try {
       await Drive.connect(); // 탭 직후 바로 호출해야 로그인 창이 열림
       const pdfBlob = await getPdf();
-      setStatus('드라이브에 저장 중');
+      flow(3, 'active', '드라이브에 저장 중');
       S.saved = await Drive.save({ pdfBlob, transcript: ($('trEditWrap').hidden ? '' : $('trEdit').value.trim()) || transcriptText(), doc: S.final });
       persist(); await renderFinal();
-      setStatus('드라이브 저장 완료');
+      flow(3, 'done', '모두 완료', `드라이브 ${S.saved.folder}에 저장했어요`);
       toast(`${S.saved.folder} 폴더에 저장했어요.`);
-    } catch (e) { setStatus('저장 실패'); toast(e.message, 4000); }
+    } catch (e) { flow(3, 'error', '드라이브 저장 실패', e.message); toast(e.message, 4000); }
     btn.disabled = false;
   });
 
@@ -571,6 +594,10 @@
       } catch (e) {}
     }
     await renderAll();
+    resetFlow();
+    if (S.saved) flow(3, 'done', '모두 완료', `드라이브 ${S.saved.folder}에 저장했어요`);
+    else if (S.final) flow(2, 'done', '정리 완료', '아래에서 확인하고 드라이브에 저장하세요');
+    else if (S.segments.length) flow(1, 'done', '녹음·받아쓰기 완료', '최종 정리 탭에서 정리를 만들 수 있어요');
     if (S.final) showTab('result');
     if (!cfg.key && !new URLSearchParams(location.search).has('demo')) setTimeout(openSettings, 300);
   }

@@ -105,6 +105,28 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 }
 #toast.show { opacity: 1; }
 
+/* 진행 단계 */
+.steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 12px 0 8px; }
+.st { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; color: var(--muted); padding: 7px 4px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+.st .b { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: var(--line); color: var(--text); }
+.st.active { color: var(--text); font-weight: 700; border-color: #2f6fd6; }
+.st.active .b { background: #2f6fd6; color: #fff; animation: pulse 1.2s infinite; }
+.st.done { color: var(--text); }
+.st.done .b { background: var(--accent); color: var(--accent-ink); }
+.st.error { color: var(--rec); border-color: var(--rec); }
+.st.error .b { background: var(--rec); color: #fff; }
+.banner { border-radius: 14px; padding: 12px 14px; margin: 0 0 6px; border: 1px solid; }
+.banner .bt { font-weight: 900; font-size: 17px; }
+.banner .bd { font-size: 13px; opacity: .85; }
+.banner.active { background: #e8f0fd; border-color: #b7cdf4; color: #173a78; }
+.banner.done { background: #e3f4e8; border-color: #a9dbb8; color: #144b2b; }
+.banner.error { background: #fde8e6; border-color: #f1b4ad; color: #7d1a12; }
+@media (prefers-color-scheme: dark) {
+  .banner.active { background: #17284a; border-color: #2c4a85; color: #cfe0ff; }
+  .banner.done { background: #14301f; border-color: #2a5c3c; color: #c8f0d6; }
+  .banner.error { background: #3a1613; border-color: #7a2a22; color: #ffd0ca; }
+}
+
 /* 색깔 표시 (화면) */
 .m-g { background: var(--hl-g); border-radius: 3px; padding: 0 2px; font-weight: 600; }
 .m-r { background: var(--hl-r); color: var(--red-ink); border-radius: 3px; padding: 0 2px; font-weight: 700; }
