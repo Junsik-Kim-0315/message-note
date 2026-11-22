@@ -495,7 +495,7 @@
   $('btnImportTxt').addEventListener('click', () => $('txtInput').click());
   $('txtInput').addEventListener('change', async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
-    if (f) await loadTranscript((await f.text()).trim(), f.name, null, null);
+    if (f) await loadTranscript((await f.text()).replace(/^# 말씀 정리 앱 버전[^\n]*\n+/, '').trim(), f.name, null, null);
   });
 
 
@@ -832,6 +832,7 @@
       if (meta.scripture && !doc.scripture_main) doc.scripture_main = meta.scripture;
       // 다시 정리해도 드라이브의 같은 파일을 갱신하도록 파일 id는 남겨 둔다
       if (S.saved) S.driveIds = { pdfId: S.saved.pdfId, txtId: S.saved.txtId };
+      doc.app_version = window.APP_VERSION || '';
       S.final = doc; S.saved = null; pdfCache = null;
       if (!meta.title && doc.title) $('sermonTitle').value = doc.title;
       if (!meta.scripture && doc.scripture_main) $('sermonText').value = doc.scripture_main;
@@ -935,6 +936,8 @@
     $('btnNew').hidden = !hasContent(S);
     await renderFinal();
   }
+
+  $('appFoot').textContent = `말씀 정리 · 앱 버전 ${window.APP_VERSION || ''}`;
 
   async function boot() {
     if (new URLSearchParams(location.search).has('demo')) {

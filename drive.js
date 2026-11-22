@@ -6,7 +6,7 @@
   const SHEET_NAME = '말씀 정리 목록';
   const FOLDER = 'application/vnd.google-apps.folder';
   const SHEET = 'application/vnd.google-apps.spreadsheet';
-  const HEADER = ['날짜', '예배', '제목', '설교자', '본문', '분류', '주제 태그', '핵심 한 줄', 'PDF', '받아쓰기'];
+  const HEADER = ['날짜', '예배', '제목', '설교자', '본문', '분류', '주제 태그', '핵심 한 줄', 'PDF', '받아쓰기', '앱 버전'];
 
   let token = null;
   let expiresAt = 0;
@@ -97,8 +97,9 @@
     const mf = (await findOrCreate(`${m}월`, yf, FOLDER)).id;
     return { root, mf, path: `${ROOT_NAME}/${svc}/${y}년/${m}월` };
   }
+  const VER_LINE = '# 말씀 정리 앱 버전 ';
   const cut = (s) => String(s || '').slice(0, 40);
-  const props = (m) => ({ mn: '1', mn_date: m.date || '', mn_service: cut(m.service_type), mn_preacher: cut(m.preacher), mn_title: cut(m.title), mn_scripture: cut(m.scripture || m.scripture_main) });
+  const props = (m) => ({ mn: '1', mn_date: m.date || '', mn_service: cut(m.service_type), mn_preacher: cut(m.preacher), mn_title: cut(m.title), mn_scripture: cut(m.scripture || m.scripture_main), mn_ver: window.APP_VERSION || '' });
   const baseName = (m) => `${m.date}_${safe(m.service_type)}_${safe(m.title) || '말씀'}`;
 
   // 받아쓰기 전체를 PDF와 같은 폴더에 따로 저장 (이미 올린 적 있으면 그 파일을 갱신)
@@ -107,7 +108,7 @@
     const date = meta.date || new Date().toISOString().slice(0, 10);
     const m = { ...meta, date };
     const f = await monthFolder(date, m.service_type);
-    const txt = await upload(new Blob([transcript], { type: 'text/plain' }), `${baseName(m)}_받아쓰기.txt`, 'text/plain', f.mf,
+    const txt = await upload(new Blob([`${VER_LINE}${window.APP_VERSION || ''}\n\n${transcript}`], { type: 'text/plain' }), `${baseName(m)}_받아쓰기.txt`, 'text/plain', f.mf,
       { id: prev?.txtId || null, appProperties: props(m) });
     return { txtId: txt.id, txtLink: txt.webViewLink, folder: f.path };
   }
@@ -123,14 +124,14 @@
     const sheet = await findOrCreate(SHEET_NAME, f.root, SHEET);
     const sheetsBase = `https://sheets.googleapis.com/v4/spreadsheets/${sheet.id}/values`;
     if (sheet.created) {
-      await api(`${sheetsBase}/A1:J1?valueInputOption=RAW`, {
+      await api(`${sheetsBase}/A1:K1?valueInputOption=RAW`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [HEADER] }),
       });
     }
     if (!prev?.pdfId) { // 다시 정리해서 다시 저장할 때는 목록에 줄을 또 넣지 않는다
       const row = [date, doc.service_type || '', doc.title || '', doc.preacher || '', doc.scripture_main || '',
-        doc.category || '', (doc.tags || []).join(', '), window.Markup.strip(doc.one_line || ''), pdf.webViewLink || '', txt.txtLink || ''];
-      await api(`${sheetsBase}/A1:J1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+        doc.category || '', (doc.tags || []).join(', '), window.Markup.strip(doc.one_line || ''), pdf.webViewLink || '', txt.txtLink || '', window.APP_VERSION || ''];
+      await api(`${sheetsBase}/A1:K1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [row] }),
       });
     }
@@ -147,7 +148,8 @@
   async function readText(id) {
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) throw new Error(`드라이브에서 파일을 읽지 못했어요 (${res.status})`);
-    return res.text();
+    // 맨 위 앱 버전 줄은 받아쓰기 내용이 아니므로 뺀다
+    return (await res.text()).replace(/^# 말씀 정리 앱 버전[^\n]*\n+/, '');
   }
 
   window.Drive = { connect, save, saveTranscript, listTranscripts, readText, hasToken };

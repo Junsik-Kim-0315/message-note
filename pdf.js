@@ -60,7 +60,7 @@
   function newPage(stage, footLeft) {
     const page = document.createElement('div');
     page.className = 'page';
-    page.innerHTML = `<div class="content"></div><div class="foot"><span>${esc(footLeft)}</span><span class="pn"></span></div>`;
+    page.innerHTML = `<div class="content"></div><div class="foot"><span>${esc(footLeft)}</span><span class="pn">말씀 정리 앱 ${esc(window.APP_VERSION || '')}</span></div>`;
     stage.appendChild(page);
     return page;
   }
@@ -130,7 +130,7 @@
       pdf.addImage(img, 'JPEG', 0, 0, 210, 297);
       canvas.width = canvas.height = 0; // 아이폰 메모리 반환
     }
-    pdf.setProperties({ title: d.title || '말씀 정리', subject: d.scripture_main || '' });
+    pdf.setProperties({ title: d.title || '말씀 정리', subject: d.scripture_main || '', creator: `말씀 정리 앱 ${window.APP_VERSION || ''}` });
     return pdf.output('blob');
   }
 
