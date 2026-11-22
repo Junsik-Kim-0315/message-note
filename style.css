@@ -220,3 +220,17 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .ck li.no .ck-i { color: #c0392b; }
 
 .page .nobg { background: none !important; padding: 0 !important; }
+
+/* 입력 칸: 날짜·예배 / 설교자·본문 두 칸씩, 제목은 한 줄 통째로 */
+.meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.meta-grid > label { min-width: 0; margin: 0; }
+.meta-grid > label.full { grid-column: 1 / -1; }
+/* 녹음 바로 아래 파일 버튼 */
+.recbar + .file-btn { margin: 4px 0 10px; }
+/* 위쪽 '새 예배' 버튼: 지난 기록 옆 */
+.topbar .new-top { border-color: var(--accent); color: var(--accent); font-weight: 700; white-space: nowrap; }
+.topbar .icon-btn { white-space: nowrap; }
+/* 최종 정리 버튼 4개: 같은 크기 */
+.actions.grid4 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.actions.grid4[hidden] { display: none; }
+.actions.grid4 > .btn { width: 100%; min-width: 0; margin: 0; justify-content: center; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
