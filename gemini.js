@@ -190,6 +190,8 @@ ${profileText}
  "contrast": {"build": "그리스도 쪽: 이번 설교에서 붙잡고 세울 것(복음·창 3:15·영적인 것)", "break": "마귀 쪽: 그것을 막는 것, 깨뜨릴 것(사단·요 8:44·육신·뱀)", "how": "영적 싸움으로 어떻게 깨뜨리고 세우는가"},
  "intro": ["서론에서 한 말의 요지들"],
  "points": [{"heading": "대지(소제목)", "claims": ["이 부분의 주장·설명 요지들"], "verses": ["인용 구절"], "illustrations": ["예화·간증 한 줄 요약"], "quotes": ["핵심 문장 원문"]}],
+ "detail_keys": ["정리본에 꼭 남길 구체적 예화·인물·본문 세부를 가리키는 짧은 말 3~6개 (예: 이수정, 엘리야, 금·은·동)"],
+ "break_keys": ["마귀 쪽: 주제를 막는 것을 가리키는 짧은 말 2~5개 (예: 완악함, 육신적, 질병의 저주, 참소)"],
  "conclusion": ["결론·결단 촉구의 요지들"],
  "application": ["설교자가 제시한 적용"],
  "text_keys": [{"key": "본문 핵심 언어", "meaning": "이 설교에서의 뜻 한 줄", "weight": 3}],
@@ -217,20 +219,66 @@ ${transcript}`;
     return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 2048, timeoutMs: longWait(300000, transcript, 4000, 600000) });
   }
 
-  // 중심 주제가 제목·한 줄·요약·대지 제목에 충분히 나오는지 본다. 약하면 이유를 돌려준다.
-  function themeWeak(doc, theme) {
-    if (!theme) return '';
-    const t = theme.replace(/\s+/g, '');
-    const has = (s) => window.Markup.strip(Array.isArray(s) ? s.join(' ') : String(s || '')).replace(/\s+/g, '').includes(t);
+  // 받침에 맞는 조사: 성막을, 예배를
+  const eul = (w) => { const c = String(w || '').slice(-1).charCodeAt(0) - 0xac00; return c >= 0 && c < 11172 && c % 28 ? '을' : '를'; };
+  // ---------- 정리본 점검표 ----------
+  // 사용자가 요구한 필수 요소를 한꺼번에 검사한다. 빠진 항목만 보충하도록 고치기 호출에 넘기고, 결과는 화면에도 보여 준다.
+  const norm = (s) => window.Markup.strip(Array.isArray(s) ? s.join(' ') : typeof s === 'object' && s ? JSON.stringify(s) : String(s || '')).replace(/\s+/g, '');
+  const head = (k) => String(k || '').split(/[·(,/]/)[0].replace(/\s+/g, '');
+  function marksOf(doc, k) {
+    const re = new RegExp(`\\[\\[${k}\\|([\\s\\S]*?)\\]\\]`, 'g');
+    const all = JSON.stringify(doc);
+    return [...all.matchAll(re)].map((m) => m[1]);
+  }
+  function checkDoc(doc, notes, theme) {
+    const items = [];
+    const add = (key, label, ok, detail, fix) => items.push({ key, label, ok: !!ok, detail, fix });
     const body = Array.isArray(doc.body) ? doc.body : [];
-    const heads = body.filter((b) => has(b.heading) || has(b.paragraphs)).length;
-    const total = window.Markup.strip(JSON.stringify(doc)).split(t).length - 1;
-    const why = [];
-    if (!has(doc.one_line) && !has(doc.title)) why.push('한 줄 핵심과 제목에 없음');
-    if (!has(doc.summary)) why.push('요약에 없음');
-    if (body.length && heads < Math.ceil(body.length / 2)) why.push(`대지 ${body.length}개 중 ${heads}개에만 나옴`);
-    if (total < 4) why.push(`전체에 ${total}번만 나옴`);
-    return why.join(', ');
+    const whole = norm({ t: doc.title, o: doc.one_line, s: doc.summary, i: doc.intro, b: body, c: doc.conclusion, k: doc.key_terms });
+    const top = norm([doc.title, doc.one_line, doc.summary]);
+    const count = (w) => (w ? whole.split(head(w)).length - 1 : 0);
+
+    // 1. 중심 주제
+    if (theme) {
+      const t = head(theme);
+      const heads = body.filter((b) => norm([b.heading, b.paragraphs]).includes(t)).length;
+      const n = count(theme);
+      const ok = top.includes(t) && heads >= Math.ceil(body.length / 2) && n >= 4;
+      add('theme', `중심 주제「${theme}」`, ok, `제목·요약 ${top.includes(t) ? '있음' : '없음'}, 대지 ${heads}/${body.length}, ${n}회`,
+        `one_line과 summary 첫 줄에「${theme}」${eul(theme)} 넣고 대지 절반 이상에서「${theme}」와 연결하세요. 노트의 theme_notes(설명·본문 해설)를 담으세요.`);
+    }
+    // 2. 그리스도 쪽
+    const green = marksOf(doc, 'g');
+    const christ = ['그리스도', '복음', '여자의후손', '창3:15', '영적싸움', '재창조'].filter((w) => whole.includes(w));
+    add('christ', '그리스도 쪽 (복음·창 3:15·영적 싸움·재창조)', green.length >= 4 && christ.length >= 3, `초록 ${green.length}곳, ${christ.join('·') || '없음'}`,
+      '노트의 christ_side와 contrast.build를 초록 표시로 보충하세요(그리스도, 복음, 창 3:15 여자의 후손, 영적 싸움, 재창조 중 설교에 나온 것).');
+    // 3. 마귀 쪽: 주제를 막는 것과 깨뜨림
+    const red = marksOf(doc, 'r');
+    const breakKeys = (notes.break_keys || []).map(head).filter(Boolean);
+    const hitBreak = breakKeys.filter((k) => whole.includes(k));
+    const devilHead = body.some((b) => /마귀|사단|사탄|원수|뱀|막는|못하게/.test(norm(b.heading)));
+    const okDevil = red.length >= 3 && devilHead && (!breakKeys.length || hitBreak.length >= Math.min(2, breakKeys.length)) && /마귀|사단|사탄|막|못하게/.test(top);
+    add('devil', `마귀 쪽 (${theme ? `「${theme}」${eul(theme)}` : '주제를'} 막는 것과 깨뜨림)`, okDevil,
+      `빨강 ${red.length}곳, 마귀 대지 ${devilHead ? '있음' : '없음'}, 막는 것 ${hitBreak.join('·') || '없음'}${breakKeys.length ? `/${breakKeys.length}` : ''}`,
+      `본론에 '무엇이「${theme}」${eul(theme)} 막는가와 그리스도의 이름으로 깨뜨림' 대지를 두고(제목에 마귀·사단 또는 '막는'이 드러나게), summary에도 한 줄 넣으세요. 노트의 contrast.break, break_keys(${breakKeys.join(', ')}), spiritual_warfare의 대적·선포를 빨강으로 담으세요.`);
+    // 4. 본문 핵심 언어
+    const keys = (notes.text_keys || []).map((k) => k.key).filter(Boolean);
+    const missKeys = keys.filter((k) => !whole.includes(head(k)));
+    add('keys', '본문 핵심 언어', !missKeys.length, keys.length ? (missKeys.length ? `빠짐: ${missKeys.join(', ')}` : keys.join(', ')) : '노트에 없음',
+      `빠진 본문 핵심 언어(${missKeys.join(', ')})를 각각 관련 대지나 요약에 굵게+밑줄로 넣으세요.`);
+    // 5. 반복·강조된 말
+    const heavy = [...(notes.text_keys || [])].filter((k) => (k.weight || 0) >= 3).map((k) => k.key);
+    const headsAll = norm([doc.one_line, doc.summary, body.map((b) => b.heading)]);
+    const missHeavy = heavy.filter((k) => !headsAll.includes(head(k)));
+    add('weight', '많이 반복·강조된 말이 앞에', !missHeavy.length, heavy.length ? (missHeavy.length ? `앞에 없음: ${missHeavy.join(', ')}` : heavy.join(', ')) : '해당 없음',
+      `많이 반복·강조된 말(${missHeavy.join(', ')})을 one_line·summary·대지 제목 중 한 곳에 올리세요.`);
+    // 6. 실제 예화·본문 해설
+    const details = (notes.detail_keys || []).map(head).filter(Boolean);
+    const hitD = details.filter((k) => whole.includes(k));
+    const needD = Math.min(details.length, Math.max(2, Math.ceil(details.length * 0.6)));
+    add('detail', '설교의 실제 예화·본문 해설', hitD.length >= needD, details.length ? `${hitD.length}/${details.length} (${hitD.join('·') || '없음'})` : '노트에 없음',
+      `빠진 예화·본문 세부(${details.filter((k) => !hitD.includes(k)).join(', ')})를 관련 대지에 설교자의 표현으로 한두 문장씩 넣으세요. 일반론 문장으로 바꾸지 마세요.`);
+    return items;
   }
 
   async function finalDoc(cfg, meta, transcript, onStep, profileText) {
@@ -255,6 +303,8 @@ ${infoLine(meta)}
 2. 그 주제를 둘러싼 그리스도와 마귀의 대립(아래 설명).
 3. 본문 핵심 언어(text_keys)와 반복·강조된 말.
 4. 예화, 마귀 관련 세부 선포, 용어 풀이, 여러 관점, 묵상 질문.
+
+구조 고정: 본론에는 반드시 '마귀 쪽: 무엇이「${theme}」${eul(theme)} 막는가(짓지 못하게·하지 못하게 하는 것)와 그것을 그리스도의 이름으로 깨뜨림'을 다루는 대지가 하나 있어야 합니다(노트의 contrast.break, break_keys, spiritual_warfare). 그리스도 쪽 대지와 마귀 쪽 대지가 함께 있어야 대립이 드러납니다.
 
 중요:
 - 설교 전체 흐름을 고르게 담으세요. 본론(대지들)이 가장 길고 비중이 커야 하며, 결론은 짧게 마무리만 합니다.
@@ -292,28 +342,34 @@ ${profileText}
 [설교 노트]
 ${JSON.stringify(notes, null, 1)}`;
     const doc = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000 });
-    // 검사: 중심 주제가 정리본에서 약하면 한 번 더 고치게 한다
+    // 점검표로 한꺼번에 검사하고, 빠진 항목만 보충한다(최대 2번). 이미 맞는 부분은 그대로 둔다.
     let out = doc;
-    const weak = themeWeak(out, theme);
-    if (weak) {
+    let check = checkDoc(out, notes, theme);
+    for (let round = 0; round < 2 && check.some((c) => !c.ok); round++) {
       onStep?.(3);
+      const miss = check.filter((c) => !c.ok);
       try {
-        const fixPrompt = `아래 설교 정리본(JSON)은 제목과 본문의 중심 주제「${theme}」의 비중이 너무 작습니다(${weak}).
-설교 노트를 근거로 같은 JSON 형식과 표시 문법을 유지한 채 고쳐 쓰세요.
-- one_line과 summary 첫 줄에 「${theme}」를 넣고, 대지 제목 절반 이상에 「${theme}」가 들어가게 하세요.
-- 노트의 theme_notes(「${theme}」에 대한 설명·본문 해설·의미)를 각 대지에 담으세요.
-- 그리스도(초록)와 마귀(빨강) 표시와, 설교자가 든 구체적인 예화·인물·본문 해설은 지우지 말고 유지하세요. 일반론 문장으로 바꾸지 마세요. 분량이 넘치면 용어 풀이·여러 관점·묵상 질문을 줄이세요.
-JSON 하나만 출력하세요.
+        const fixPrompt = `아래 설교 정리본(JSON)을 점검표로 검사했더니 다음 항목이 빠졌거나 약합니다.
+${miss.map((c, i) => `${i + 1}. ${c.label}: ${c.detail}\n   → ${c.fix}`).join('\n')}
+
+이미 통과한 항목(${check.filter((c) => c.ok).map((c) => c.label).join(', ') || '없음'})은 그대로 지키세요. 기존 문장·표시·예화를 지우거나 일반론으로 바꾸지 말고, 빠진 것만 보충하세요.
+한 장에 넘치면 여러 관점·용어 풀이·묵상 질문을 줄이세요. 같은 JSON 형식과 표시 문법으로, JSON 하나만 출력하세요.
+${MARK_RULES}
 
 [정리본]
 ${JSON.stringify(out, null, 1)}
 
 [설교 노트]
-${JSON.stringify({ central_theme: notes.central_theme, theme_notes: notes.theme_notes, points: notes.points, contrast: notes.contrast }, null, 1)}`;
-        const fixed = await call(cfg, cfg.anaModel, [{ text: fixPrompt }], { json: true, temperature: 0.2, thinking: 1024, timeoutMs: 240000 });
-        if (fixed && Array.isArray(fixed.body) && fixed.body.length) out = fixed;
-      } catch (e) { /* 고치기 실패해도 처음 결과로 진행 */ }
+${JSON.stringify({ central_theme: notes.central_theme, theme_notes: notes.theme_notes, contrast: notes.contrast, break_keys: notes.break_keys, spiritual_warfare: notes.spiritual_warfare, christ_side: notes.christ_side, text_keys: notes.text_keys, detail_keys: notes.detail_keys, points: notes.points }, null, 1)}`;
+        const fixed = await call(cfg, cfg.anaModel, [{ text: fixPrompt }], { json: true, temperature: 0.2, thinking: 1024, timeoutMs: 300000 });
+        if (fixed && Array.isArray(fixed.body) && fixed.body.length) {
+          const again = checkDoc(fixed, notes, theme);
+          // 보충한 결과가 통과 항목을 더 잃지 않았을 때만 바꾼다
+          if (again.filter((c) => c.ok).length >= check.filter((c) => c.ok).length) { out = fixed; check = again; }
+        }
+      } catch (e) { break; /* 고치기 실패해도 지금 결과로 진행 */ }
     }
+    out._check = check.map(({ key, label, ok, detail }) => ({ key, label, ok, detail }));
     out._notes = notes;
     out._theme = theme;
     return out;
@@ -346,5 +402,5 @@ ${JSON.stringify(src, null, 1)}`;
     return call(cfg, cfg.anaModel, [{ text: '“확인”이라고만 답하세요.' }], { temperature: 0, timeoutMs: 30000 });
   }
 
-  window.Gemini = { transcribe, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, ping };
+  window.Gemini = { transcribe, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, checkDoc, ping };
 })();

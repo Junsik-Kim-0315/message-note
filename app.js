@@ -847,7 +847,7 @@
       const cleaned = Learn.clean(text); // 시간 표시·겹친 문단 같은 잡음 제거
       const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n) => {
         if (n === 2) flow(2, 'active', '최종 정리 중 (2/2)', '한 장으로 정리하고 색깔 표시를 넣고 있어요');
-        if (n === 3) flow(2, 'active', '최종 정리 다듬는 중', '중심 주제가 약해서 한 번 더 고치고 있어요');
+        if (n === 3) flow(2, 'active', '최종 정리 점검·보충 중', '점검표에서 빠진 항목만 보충하고 있어요');
       }, Learn.toText(profile));
       // 이번 설교의 구조·용어 교정을 쌓아 다음 정리에 반영
       const learned = Learn.merge(profile, doc._notes, { ...meta, title: meta.title || doc.title }, S.id);
@@ -884,6 +884,9 @@
     $('resActions').hidden = !(has || S.segments.length);
     $('btnDrive').disabled = $('btnShare').disabled = !has;
     $('saveInfo').innerHTML = S.saved ? `저장됨: ${esc(S.saved.folder)} · <a href="${esc(S.saved.pdfLink)}" target="_blank">PDF 열기</a> · <a href="${esc(S.saved.sheetLink)}" target="_blank">목록 시트</a>` : '';
+    const ck = has && Array.isArray(S.final._check) ? S.final._check : null;
+    $('checkBox').hidden = !ck;
+    if (ck) $('checkBox').innerHTML = `<div class="ck-h"><b>정리 점검표</b> <span class="hint">${ck.filter((c) => c.ok).length}/${ck.length} 통과</span></div><ul class="ck">${ck.map((c) => `<li class="${c.ok ? 'ok' : 'no'}"><span class="ck-i">${c.ok ? '✓' : '✗'}</span><span><b>${esc(c.label)}</b> <span class="hint">${esc(c.detail || '')}</span></span></li>`).join('')}</ul>${ck.every((c) => c.ok) ? '' : '<p class="hint">✗ 항목은 두 번 보충했지만 부족한 부분이에요. \'정리만 다시 하기\'로 다시 시도할 수 있어요.</p>'}`;
     $('btnPara').disabled = !has;
     $('paraBox').hidden = !(has && S.final.paragraph);
     if (has && S.final.paragraph) $('paraText').innerHTML = Markup.mark(S.final.paragraph);

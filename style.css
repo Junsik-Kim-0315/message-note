@@ -209,3 +209,12 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .para-acts { display: flex; gap: 6px; }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .para-text { margin: 0; line-height: 1.9; font-family: "Noto Serif KR", serif; font-size: 16px; word-break: keep-all; }
+
+/* 정리 점검표 */
+.check-box { margin: 10px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; }
+.ck-h { display: flex; justify-content: space-between; align-items: baseline; }
+.ck { list-style: none; margin: 6px 0 0; padding: 0; }
+.ck li { display: flex; gap: 8px; padding: 4px 0; font-size: 14px; line-height: 1.5; }
+.ck .ck-i { font-weight: 900; width: 1.2em; flex: none; }
+.ck li.ok .ck-i { color: #1f7a45; }
+.ck li.no .ck-i { color: #c0392b; }
