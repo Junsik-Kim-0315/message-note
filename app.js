@@ -835,6 +835,7 @@
       const cleaned = Learn.clean(text); // 시간 표시·겹친 문단 같은 잡음 제거
       const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n) => {
         if (n === 2) flow(2, 'active', '최종 정리 중 (2/2)', '한 장으로 정리하고 색깔 표시를 넣고 있어요');
+        if (n === 3) flow(2, 'active', '최종 정리 다듬는 중', '중심 주제가 약해서 한 번 더 고치고 있어요');
       }, Learn.toText(profile));
       // 이번 설교의 구조·용어 교정을 쌓아 다음 정리에 반영
       const learned = Learn.merge(profile, doc._notes, { ...meta, title: meta.title || doc.title }, S.id);

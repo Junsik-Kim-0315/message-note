@@ -182,6 +182,8 @@ ${profileText}
  "scripture_main": "주 본문",
  "title_guess": "설교 제목 추정",
  "big_idea": "설교 전체를 꿰는 중심 메시지 한두 문장",
+ "central_theme": "제목과 본문의 중심 주제어 하나 (예: 성막)",
+ "theme_notes": ["중심 주제에 대해 설교자가 한 설명·의미·적용을 빠짐없이(본문 해설 포함)"],
  "contrast": {"build": "그리스도 쪽: 이번 설교에서 붙잡고 세울 것(복음·창 3:15·영적인 것)", "break": "마귀 쪽: 그것을 막는 것, 깨뜨릴 것(사단·요 8:44·육신·뱀)", "how": "영적 싸움으로 어떻게 깨뜨리고 세우는가"},
  "intro": ["서론에서 한 말의 요지들"],
  "points": [{"heading": "대지(소제목)", "claims": ["이 부분의 주장·설명 요지들"], "verses": ["인용 구절"], "illustrations": ["예화·간증 한 줄 요약"], "quotes": ["핵심 문장 원문"]}],
@@ -212,9 +214,27 @@ ${transcript}`;
     return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 2048, timeoutMs: 300000 });
   }
 
+  // 중심 주제가 제목·한 줄·요약·대지 제목에 충분히 나오는지 본다. 약하면 이유를 돌려준다.
+  function themeWeak(doc, theme) {
+    if (!theme) return '';
+    const t = theme.replace(/\s+/g, '');
+    const has = (s) => window.Markup.strip(Array.isArray(s) ? s.join(' ') : String(s || '')).replace(/\s+/g, '').includes(t);
+    const body = Array.isArray(doc.body) ? doc.body : [];
+    const heads = body.filter((b) => has(b.heading) || has(b.paragraphs)).length;
+    const total = window.Markup.strip(JSON.stringify(doc)).split(t).length - 1;
+    const why = [];
+    if (!has(doc.one_line) && !has(doc.title)) why.push('한 줄 핵심과 제목에 없음');
+    if (!has(doc.summary)) why.push('요약에 없음');
+    if (body.length && heads < Math.ceil(body.length / 2)) why.push(`대지 ${body.length}개 중 ${heads}개에만 나옴`);
+    if (total < 6) why.push(`전체에 ${total}번만 나옴`);
+    return why.join(', ');
+  }
+
   async function finalDoc(cfg, meta, transcript, onStep, profileText) {
     onStep?.(1);
     const notes = await sermonNotes(cfg, meta, transcript, profileText);
+    // 정리본의 주인공: 노트의 중심 주제 → 가장 무거운 본문 핵심어 → 사용자가 적은 제목의 첫 말
+    const theme = String(notes.central_theme || [...(notes.text_keys || [])].sort((a, b) => (b.weight || 0) - (a.weight || 0))[0]?.key || (meta.title || '').split(/[\s,·]/)[0] || '').trim();
     // 상시 축(그리스도·영적 싸움·재창조)과 이번 본문 핵심어 가운데 받아쓰기에 실제로 나온 말은 정리본에서 빠지지 않게 목록으로 넘긴다
     const flat = transcript.replace(/\s+/g, '');
     const mustKeys = [...new Set([...CORE_KEYS, ...(notes.text_keys || []).map((c) => c.key), ...(window.MN_VOCAB || [])])]
@@ -226,6 +246,12 @@ ${transcript}`;
     const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래는 한 편의 설교를 처음부터 끝까지 노트한 자료입니다. 이것을 A4 한 장짜리 정리본으로 만드세요.
 ${infoLine(meta)}
 본문 말씀이 주어졌으면 그것을 주 본문으로 삼고(scripture_main에 '출애굽기 25:1-9'처럼 책 이름을 풀어 쓴 형태로), 그 본문의 내용과 문맥에 비추어 설교를 해석하세요.
+
+우선순위(위가 먼저, 한 장에 다 못 담으면 아래부터 줄이세요):
+1. 제목과 본문의 중심 주제「${theme}」가 정리본의 주인공입니다. 제목·one_line·summary 첫 줄에 들어가고, 대지마다 이 주제와 어떻게 이어지는지 드러나야 합니다(대지 제목 절반 이상에 이 말이 들어가게). 노트의 theme_notes(중심 주제에 대한 설명·본문 해설·의미)는 줄이지 말고 담으세요. 다른 어떤 규칙도 이 주제의 비중을 줄이면 안 됩니다.
+2. 그 주제를 둘러싼 그리스도와 마귀의 대립(아래 설명).
+3. 본문 핵심 언어(text_keys)와 반복·강조된 말.
+4. 예화, 마귀 관련 세부 선포, 용어 풀이, 여러 관점, 묵상 질문.
 
 중요:
 - 설교 전체 흐름을 고르게 담으세요. 본론(대지들)이 가장 길고 비중이 커야 하며, 결론은 짧게 마무리만 합니다.
@@ -262,8 +288,31 @@ ${profileText}
 [설교 노트]
 ${JSON.stringify(notes, null, 1)}`;
     const doc = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000 });
-    doc._notes = notes;
-    return doc;
+    // 검사: 중심 주제가 정리본에서 약하면 한 번 더 고치게 한다
+    let out = doc;
+    const weak = themeWeak(out, theme);
+    if (weak) {
+      onStep?.(3);
+      try {
+        const fixPrompt = `아래 설교 정리본(JSON)은 제목과 본문의 중심 주제「${theme}」의 비중이 너무 작습니다(${weak}).
+설교 노트를 근거로 같은 JSON 형식과 표시 문법을 유지한 채 고쳐 쓰세요.
+- one_line과 summary 첫 줄에 「${theme}」를 넣고, 대지 제목 절반 이상에 「${theme}」가 들어가게 하세요.
+- 노트의 theme_notes(「${theme}」에 대한 설명·본문 해설·의미)를 각 대지에 담으세요.
+- 그리스도(초록)와 마귀(빨강) 표시는 유지하되, 분량이 넘치면 예화·용어 풀이·여러 관점을 줄이세요.
+JSON 하나만 출력하세요.
+
+[정리본]
+${JSON.stringify(out, null, 1)}
+
+[설교 노트]
+${JSON.stringify({ central_theme: notes.central_theme, theme_notes: notes.theme_notes, points: notes.points, contrast: notes.contrast }, null, 1)}`;
+        const fixed = await call(cfg, cfg.anaModel, [{ text: fixPrompt }], { json: true, temperature: 0.2, thinking: 1024, timeoutMs: 240000 });
+        if (fixed && Array.isArray(fixed.body) && fixed.body.length) out = fixed;
+      } catch (e) { /* 고치기 실패해도 처음 결과로 진행 */ }
+    }
+    out._notes = notes;
+    out._theme = theme;
+    return out;
   }
 
   async function ping(cfg) {
