@@ -66,6 +66,7 @@
       preacher: $('preacher').value.trim(),
       title: $('sermonTitle').value.trim(),
       scripture: $('sermonText').value.trim(),
+      ref: $('sermonRef').value.trim(),
     };
   }
   function fillMeta() {
@@ -77,9 +78,13 @@
     $('sermonDate').value = S.meta.date || today();
     $('sermonTitle').value = S.meta.title || '';
     $('sermonText').value = S.meta.scripture || '';
+    // 교회 요약(언약기도)은 1부·2부를 한 번에 붙여 두는 경우가 많아, 같은 날짜면 다음 예배에도 그대로 채운다
+    const lr = store.get('mn_lastref', {});
+    $('sermonRef').value = S.meta.ref || (lr.date && lr.date === $('sermonDate').value ? lr.text : '') || '';
   }
-  ['sermonDate', 'serviceType', 'preacher', 'sermonTitle', 'sermonText'].forEach((id) => $(id).addEventListener('change', () => {
+  ['sermonDate', 'serviceType', 'preacher', 'sermonTitle', 'sermonText', 'sermonRef'].forEach((id) => $(id).addEventListener('change', () => {
     persist(); store.set('mn_lastmeta', { service_type: $('serviceType').value, preacher: $('preacher').value.trim() });
+    if (id === 'sermonRef' && $('sermonRef').value.trim()) store.set('mn_lastref', { date: $('sermonDate').value, text: $('sermonRef').value.trim() });
   }));
 
   // ---------- 진행 단계 표시 ----------
@@ -442,7 +447,7 @@
     S = { ...emptySession(), ...JSON.parse(JSON.stringify(h)), live: null };
     wavs.clear(); pdfCache = null; fileJob = null; liveLen = 0;
     segCounter = S.segments.reduce((m, s) => Math.max(m, s.i + 1), 0);
-    $('sermonTitle').value = S.meta.title || ''; $('sermonText').value = S.meta.scripture || '';
+    $('sermonTitle').value = S.meta.title || ''; $('sermonText').value = S.meta.scripture || ''; $('sermonRef').value = S.meta.ref || '';
     persist();
     $('history').close();
     await renderAll();
