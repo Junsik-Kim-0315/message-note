@@ -160,6 +160,7 @@ ${transcript}`;
   // (한 번에 하면 긴 받아쓰기에서 마지막 부분만 붙잡아 정리하는 문제가 있었다)
   const infoLine = (meta) => `설교 정보: 날짜 ${meta.date} / 예배 ${meta.service_type || ''} / 설교자 ${meta.preacher || '미상'} / 사용자가 적은 제목 ${meta.title || '(없음, 추정할 것)'} / 사용자가 적은 본문 말씀 ${meta.scripture || '(없음, 추정할 것)'}`;
 
+  // (검증용) 교회 언약기도와 정리본을 비교할 때만 쓴다. 정리 과정에는 넣지 않는다.
   // 교회 요약(언약기도): 1부·2부를 한꺼번에 붙여 넣어도 이 예배(몇 부, 날짜, 본문)에 맞는 것 하나를 고른다
   function pickRef(text, meta = {}) {
     const raw = String(text || '').trim();
@@ -185,18 +186,19 @@ ${transcript}`;
       .replace(/(살아계신|전능하신|사랑의|거룩하신)\s*하나님/g, '').replace(/예수\s*그리스도\s*(의\s*)?이름으로\s*기도(합|드립)니다\.?\s*아멘\.?/g, '')
       .split(/[.,]\s*|(?:하옵소서|감사드립니다|감사합니다)/).map((c) => c.replace(/^(한\s*주간|그리하여|그래서)\s*/, '').trim()).filter((c) => c.replace(/\s/g, '').length >= 8);
   }
-  const refBlock = (ref) => ref ? `
-[교회가 낸 이 설교의 공식 요약(언약기도) — 정리의 정답지]
-${ref}
-이 요약은 설교 전체를 세 흐름으로 정리한 것입니다: ① 감사(하나님이 이미 해 주신 것, 복음의 사실) ② 한 주간(무엇에 빠져 하나님을 잃어버리는가와, 어떻게 돌이켜 싸워 이기는가) ③ 그리하여(어떤 삶·사명으로 열매 맺는가). 여기 나온 핵심 말과 흐름을 빠짐없이 기준으로 삼으세요.
-` : '';
-
   async function sermonNotes(cfg, meta, transcript, profileText) {
     const prompt = `당신은 한국 교회 설교를 꼼꼼히 듣고 노트하는 조교입니다. 아래는 현장 예배 전체의 음성인식 받아쓰기입니다(오타가 있으니 문맥으로 바로잡아 이해하세요).
 ${infoLine(meta)}
-${refBlock(meta.ref)}
+
 할 일:
-0. 설교 제목과 실제 설교 흐름이 떨어져 있는 경우가 있습니다(예: 2026-11-22 2부 '잃어버린 드라크마' 설교의 실제 흐름은 창 3:15 사실의 가치 → 요 8:44 운명의 굴레 → 허무주의·중독으로 하나님을 잃어버림 → 즉각 회개, 나를 쳐 복종시키는 영적 싸움 → 통찰력, 한 영혼의 가치, 자발적 헌신, 전도자의 기쁨). 제목의 낱말을 따라가지 말고, 설교자가 실제로 가장 많이 반복하고 힘준 내용과 마무리 기도로 central_theme, big_idea, flow3를 정하세요.
+0. 먼저 문맥과 맥락을 파악하세요. 제목의 낱말을 따라가지 말고 받아쓰기 자체에서 설교의 실제 흐름을 읽어 냅니다.
+ a. 설교를 내용이 바뀌는 곳마다 단락(sections)으로 순서대로 나누고, 단락마다 설교자가 진단한 문제(사람이 무엇에 빠져 하나님을 잃는가: 마귀·육신 쪽), 제시한 해답(그리스도 쪽: 복음의 사실, 영적 싸움), 그 단락을 결론짓는 문장, 핵심어를 적으세요.
+ b. 많이 반복된 말뿐 아니라, 한 번만 나와도 논증의 결론 자리('…이 말이에요', '…이겁니다', '그래서 …', '…축복합니다')에 나온 말은 핵심입니다(예: '무아지경으로 드디어 살게 된다 이 말이에요', '운명의 굴레').
+ c. 마무리 기도는 결론(적용·사명) 쪽에 치우치는 경우가 많습니다. 본론 중간의 문제 진단과 해법(예: 허무주의·중독 → 즉각 회개, 나를 쳐 복종)을 마무리 기도 때문에 놓치지 마세요.
+ d. 단락들을 묶어 flow3를 만드세요: ① 하나님이 이미 해 주신 것(복음의 사실) ② 무엇에 빠져 하나님을 잃어버리고, 어떻게 돌이켜 싸워 이기는가 ③ 그리하여 어떤 삶·사명으로 열매 맺는가. 제목과 실제 흐름이 떨어져 있으면 title_gap에 적고 실제 흐름을 따릅니다(예: 2026-11-22 2부 눅 15:8-10은 제목은 드라크마였지만 실제 흐름은 창 3:15 사실의 가치 → 요 8:44 운명의 굴레·허무주의·중독 → 즉각 회개·나를 쳐 복종 → 통찰력·한 영혼의 가치·자발적 헌신·전도자의 기쁨).
+${window.MN_SIGNALS ? ` e. 아래는 받아쓰기에서 설교자가 단락을 결론지은 문장을 앞·중간·끝 순서로 뽑은 것입니다. 흐름을 잡는 단서로 쓰세요.
+${window.MN_SIGNALS}
+` : ''}
 1. 찬양, 대표기도, 광고, 헌금, 축도 등을 빼고 '설교'가 시작되는 곳과 끝나는 곳을 찾으세요. 설교 전 성경 봉독이 있으면 본문 파악에 쓰세요.
 2. 설교의 처음부터 끝까지 흐름을 시간 순서대로 빠짐없이 노트하세요. 마지막 부분만이 아니라 앞·중간 부분의 주장과 설명을 반드시 고르게 담으세요. 설교의 대부분은 본론입니다.
 3. 설교자가 실제로 한 말을 근거로 하고, 핵심 문장은 받아쓰기에서 그대로(오타만 고쳐) 인용하세요.
@@ -220,6 +222,7 @@ ${profileText}
  "big_idea": "설교 전체를 꿰는 중심 메시지 한두 문장",
  "central_theme": "설교가 실제로 끌고 간 중심 주제어 하나, 1~3단어의 짧은 말 (제목 낱말과 다를 수 있음. 예: 성막, 사실의 가치)",
  "title_gap": "제목과 실제 흐름의 관계 한 줄 (제목이 실제 흐름을 잘 담으면 빈 문자열)",
+ "sections": [{"cue": "단락이 시작되는 말 몇 마디", "problem": "설교자가 진단한 문제(마귀·육신 쪽), 없으면 빈 문자열", "answer": "제시한 해답(그리스도 쪽)", "conclusion": "단락을 결론짓는 문장 원문", "keys": ["핵심어 1~3개"]}],
  "flow3": {"grace": "① 감사: 하나님이 이미 해 주신 것, 복음의 사실(창 3:15, 십자가, 재창조)", "fight": "② 한 주간: 무엇(마귀·육신·요 8:44)에 빠져 하나님을 잃어버리고, 어떻게 돌이켜 영적 싸움으로 이기는가", "life": "③ 그리하여: 어떤 삶·사명으로 열매 맺는가"},
  "stated_core": "설교자가 '오늘 메시지의 핵심', '오늘 본문은' 처럼 직접 밝힌 핵심 문장 원문 (없으면 빈 문자열)",
  "stated_points": ["설교자가 '세 가지 비밀', '첫째·둘째'처럼 직접 밝힌 요점들 (없으면 빈 배열)"],
@@ -270,7 +273,7 @@ ${transcript}`;
   // 조사·어미가 달라도 잡히게 두 글자 묶음이 얼마나 겹치는지로 본다
   const grams = (s) => { const t = norm(s).replace(/[^가-힣A-Za-z0-9]/g, ''); const out = new Set(); for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2)); return [...out]; };
   const overlap = (s, whole) => { const g2 = grams(s); if (!g2.length) return 1; return g2.filter((x) => whole.includes(x)).length / g2.length; };
-  function checkDoc(doc, notes, theme, ref) {
+  function checkDoc(doc, notes, theme) {
     const items = [];
     const add = (key, label, ok, detail, fix) => items.push({ key, label, ok: !!ok, detail, fix });
     const body = Array.isArray(doc.body) ? doc.body : [];
@@ -330,12 +333,12 @@ ${transcript}`;
       add('stated', '설교자가 직접 밝힌 핵심·요점', coreOk && spHit >= Math.ceil(sp.length * 0.7), `${core ? (coreOk ? '핵심 반영' : '핵심 빠짐') : ''}${sp.length ? ` 요점 ${spHit}/${sp.length}` : ''}`.trim(),
         `설교자가 직접 밝힌 핵심("${core}")을 one_line에 살리고, 요점(${sp.join(' / ')})을 대지나 summary에 드러내세요.`);
     }
-    // 8. 교회 요약(언약기도) 반영: 기도문의 구절마다 정리본에 담겼는지
-    const clauses = refClauses(ref);
-    if (clauses.length) {
-      const missC = clauses.filter((c) => overlap(c, whole) < 0.5);
-      add('ref', '교회 요약(언약기도) 반영', missC.length <= Math.floor(clauses.length * 0.2), `${clauses.length - missC.length}/${clauses.length} 구절${missC.length ? ` · 빠짐: ${missC.slice(0, 3).map((c) => c.slice(0, 18)).join(' / ')}` : ''}`,
-        `교회 요약의 다음 구절을 관련 대지나 summary에 담으세요: ${missC.join(' / ')}`);
+    // 8. 문맥: 단락마다 설교자가 진단한 문제와 해답의 핵심어가 정리본에 남았는지 (중간 단락이 묻히지 않게)
+    const secs = (notes.sections || []).filter((x) => (x.keys || []).length);
+    if (secs.length >= 2) {
+      const missS = secs.filter((x) => !(x.keys || []).some((k) => whole.includes(head(k))));
+      add('context', '단락별 문제·해답 (문맥)', missS.length <= Math.floor(secs.length * 0.25), `${secs.length - missS.length}/${secs.length} 단락${missS.length ? ` · 빠짐: ${missS.slice(0, 3).map((x) => (x.keys || []).join('·')).join(' / ')}` : ''}`,
+        `다음 단락의 문제 진단과 해답을 관련 대지나 summary에 담으세요: ${missS.map((x) => `${(x.keys || []).join('·')} (${x.problem || ''} → ${x.answer || ''})`).join(' / ')}`);
     }
     // 9. 실제 흐름 세 단계(받은 은혜 → 싸워 이길 것 → 그리하여 살 삶)가 요약 3줄에 드러나는지
     const f3 = notes.flow3 || {};
@@ -356,7 +359,6 @@ ${transcript}`;
 
   async function finalDoc(cfg, meta, transcript, onStep, profileText) {
     onStep?.(1);
-    meta = { ...meta, ref: pickRef(meta.ref, meta) };
     const notes = await sermonNotes(cfg, meta, transcript, profileText);
     // 정리본의 주인공: 노트의 중심 주제 → 가장 무거운 본문 핵심어 → 사용자가 적은 제목의 첫 말
     const theme = String(notes.central_theme || [...(notes.text_keys || [])].sort((a, b) => (b.weight || 0) - (a.weight || 0))[0]?.key || (meta.title || '').split(/[\s,·]/)[0] || '').trim();
@@ -370,11 +372,10 @@ ${transcript}`;
     onStep?.(2);
     const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래는 한 편의 설교를 처음부터 끝까지 노트한 자료입니다. 이것을 A4 한 장짜리 정리본으로 만드세요.
 ${infoLine(meta)}
-${refBlock(meta.ref)}본문 말씀이 주어졌으면 그것을 주 본문으로 삼고(scripture_main에 '출애굽기 25:1-9'처럼 책 이름을 풀어 쓴 형태로), 그 본문의 내용과 문맥에 비추어 설교를 해석하세요.
+본문 말씀이 주어졌으면 그것을 주 본문으로 삼고(scripture_main에 '출애굽기 25:1-9'처럼 책 이름을 풀어 쓴 형태로), 그 본문의 내용과 문맥에 비추어 설교를 해석하세요.
 
 우선순위(위가 먼저, 한 장에 다 못 담으면 아래부터 줄이세요):
-00. 교회 요약(언약기도)이 주어졌으면 그것이 첫째 정답입니다. 그 안의 핵심 말과 세 흐름(감사 → 한 주간 → 그리하여)을 하나도 빠뜨리지 말고 summary 3줄과 대지에 담으세요.
-0. 설교의 실제 흐름(노트의 flow3: 받은 은혜 → 싸워 이길 것 → 그리하여 살 삶)이 정리의 뼈대입니다. 제목과 실제 흐름이 떨어져 있으면(노트의 title_gap) 제목의 낱말보다 실제 흐름을 따르세요. summary 3줄은 이 세 흐름을 차례로 한 줄씩 씁니다.
+0. 설교의 실제 흐름(노트의 flow3: 받은 은혜 → 싸워 이길 것 → 그리하여 살 삶)이 정리의 뼈대입니다. 제목과 실제 흐름이 떨어져 있으면(노트의 title_gap) 제목의 낱말보다 실제 흐름을 따르세요. summary 3줄은 이 세 흐름을 차례로 한 줄씩 씁니다. 노트의 sections에 나온 문제 진단과 해답이 정리본에서 빠지지 않게 하세요(특히 본론 중간 단락).
 0-1. 설교자가 직접 밝힌 핵심(노트의 stated_core)과 요점(stated_points)이 있으면 그것이 정답입니다. one_line은 stated_core를 살려 쓰고, stated_points는 대지나 summary에 그대로 드러내세요.
 1. 설교의 중심 주제「${theme}」가 정리본의 주인공입니다. 제목·one_line·summary 첫 줄에 들어가고, 대지마다 이 주제와 어떻게 이어지는지 내용으로 드러나야 합니다. 같은 긴 구절을 대지 제목마다 되풀이하지 말고, 대지 제목은 각 대지의 고유한 내용을 짧게(15자 안팎) 쓰세요. 노트의 theme_notes(중심 주제에 대한 설명·본문 해설·의미)는 줄이지 말고 담으세요. 다른 어떤 규칙도 이 주제의 비중을 줄이면 안 됩니다.
 2. 그 주제를 둘러싼 그리스도와 마귀의 대립(아래 설명).
@@ -421,7 +422,7 @@ ${JSON.stringify(notes, null, 1)}`;
     const doc = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000 });
     // 점검표로 한꺼번에 검사하고, 빠진 항목만 보충한다(최대 2번). 이미 맞는 부분은 그대로 둔다.
     let out = doc;
-    let check = checkDoc(out, notes, theme, meta.ref);
+    let check = checkDoc(out, notes, theme);
     for (let round = 0; round < 2 && check.some((c) => !c.ok); round++) {
       onStep?.(3);
       const miss = check.filter((c) => !c.ok);
@@ -436,11 +437,11 @@ ${MARK_RULES}
 [정리본]
 ${JSON.stringify(out, null, 1)}
 
-${meta.ref ? `[교회 요약(언약기도)]\n${meta.ref}\n\n` : ''}[설교 노트]
-${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, theme_notes: notes.theme_notes, contrast: notes.contrast, break_keys: notes.break_keys, spiritual_warfare: notes.spiritual_warfare, christ_side: notes.christ_side, text_keys: notes.text_keys, detail_keys: notes.detail_keys, points: notes.points }, null, 1)}`;
+[설교 노트]
+${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, sections: notes.sections, theme_notes: notes.theme_notes, contrast: notes.contrast, break_keys: notes.break_keys, spiritual_warfare: notes.spiritual_warfare, christ_side: notes.christ_side, text_keys: notes.text_keys, detail_keys: notes.detail_keys, points: notes.points }, null, 1)}`;
         const fixed = await call(cfg, cfg.anaModel, [{ text: fixPrompt }], { json: true, temperature: 0.2, thinking: 1024, timeoutMs: 300000 });
         if (fixed && Array.isArray(fixed.body) && fixed.body.length) {
-          const again = checkDoc(fixed, notes, theme, meta.ref);
+          const again = checkDoc(fixed, notes, theme);
           // 보충한 결과가 통과 항목을 더 잃지 않았을 때만 바꾼다
           if (again.filter((c) => c.ok).length >= check.filter((c) => c.ok).length) { out = fixed; check = again; }
         }
@@ -449,20 +450,18 @@ ${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, theme
     out._check = check.map(({ key, label, ok, detail }) => ({ key, label, ok, detail }));
     out._notes = notes;
     out._theme = theme;
-    out._ref = meta.ref || '';
     return out;
   }
 
   // 한 문단 정리: 이미 만든 설교 노트(없으면 정리본)를 바탕으로 같은 우선순위로 한 문단만 쓴다
   async function paragraph(cfg, meta, notes, doc) {
     const theme = (notes && notes.central_theme) || doc?._theme || '';
-    const ref = doc?._ref || pickRef(meta.ref, meta);
     const src = notes ? { big_idea: notes.big_idea, central_theme: notes.central_theme, flow3: notes.flow3, theme_notes: notes.theme_notes, contrast: notes.contrast, text_keys: notes.text_keys, emphasized: notes.emphasized, christ_side: notes.christ_side, spiritual_warfare: notes.spiritual_warfare, points: notes.points, conclusion: notes.conclusion }
       : { title: doc.title, one_line: doc.one_line, summary: doc.summary, intro: doc.intro, body: doc.body, conclusion: doc.conclusion };
     const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래 설교 자료를 '한 문단'으로 정리하세요.
 ${infoLine(meta)}
-${refBlock(ref)}우선순위:
-0. 문단은 설교의 실제 흐름 세 단계로 이어 씁니다: 하나님이 이미 해 주신 것(받은 은혜·복음의 사실) → 무엇에 빠져 하나님을 잃어버리고 어떻게 돌이켜 싸워 이기는가 → 그리하여 어떤 삶을 사는가. 교회 요약이 있으면 그 말과 흐름을 따르되 기도문 말투가 아닌 정리 문장으로 쓰세요.
+우선순위:
+0. 문단은 설교의 실제 흐름 세 단계로 이어 씁니다: 하나님이 이미 해 주신 것(받은 은혜·복음의 사실) → 무엇에 빠져 하나님을 잃어버리고 어떻게 돌이켜 싸워 이기는가 → 그리하여 어떤 삶을 사는가. 설교 노트의 flow3와 sections를 따르세요.
 1. 설교의 중심 주제${theme ? `「${theme}」` : ''}를 첫 문장에 넣으세요. 제목 낱말과 실제 흐름이 다르면 실제 흐름을 따르세요.
 2. 말씀은 언제나 그리스도(복음, 창 3:15, 영적인 것, 영적 싸움)와 마귀(사단, 요 8:44, 육신, 뱀)의 대립과 싸움입니다. 이 설교에서 그 대립이 무엇인지 드러내세요.
 3. 본문 핵심 언어와 많이 반복·강조된 말을 살리세요.

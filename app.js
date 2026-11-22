@@ -66,7 +66,6 @@
       preacher: $('preacher').value.trim(),
       title: $('sermonTitle').value.trim(),
       scripture: $('sermonText').value.trim(),
-      ref: $('sermonRef').value.trim(),
     };
   }
   function fillMeta() {
@@ -78,13 +77,9 @@
     $('sermonDate').value = S.meta.date || today();
     $('sermonTitle').value = S.meta.title || '';
     $('sermonText').value = S.meta.scripture || '';
-    // 교회 요약(언약기도)은 1부·2부를 한 번에 붙여 두는 경우가 많아, 같은 날짜면 다음 예배에도 그대로 채운다
-    const lr = store.get('mn_lastref', {});
-    $('sermonRef').value = S.meta.ref || (lr.date && lr.date === $('sermonDate').value ? lr.text : '') || '';
   }
-  ['sermonDate', 'serviceType', 'preacher', 'sermonTitle', 'sermonText', 'sermonRef'].forEach((id) => $(id).addEventListener('change', () => {
+  ['sermonDate', 'serviceType', 'preacher', 'sermonTitle', 'sermonText'].forEach((id) => $(id).addEventListener('change', () => {
     persist(); store.set('mn_lastmeta', { service_type: $('serviceType').value, preacher: $('preacher').value.trim() });
-    if (id === 'sermonRef' && $('sermonRef').value.trim()) store.set('mn_lastref', { date: $('sermonDate').value, text: $('sermonRef').value.trim() });
   }));
 
   // ---------- 진행 단계 표시 ----------
@@ -447,7 +442,7 @@
     S = { ...emptySession(), ...JSON.parse(JSON.stringify(h)), live: null };
     wavs.clear(); pdfCache = null; fileJob = null; liveLen = 0;
     segCounter = S.segments.reduce((m, s) => Math.max(m, s.i + 1), 0);
-    $('sermonTitle').value = S.meta.title || ''; $('sermonText').value = S.meta.scripture || ''; $('sermonRef').value = S.meta.ref || '';
+    $('sermonTitle').value = S.meta.title || ''; $('sermonText').value = S.meta.scripture || '';
     persist();
     $('history').close();
     await renderAll();
@@ -850,6 +845,7 @@
       const profile = await Learn.load(meta.preacher);
       window.MN_VOCAB = Learn.vocabOf(profile);
       const cleaned = Learn.clean(text); // 시간 표시·겹친 문단 같은 잡음 제거
+      window.MN_SIGNALS = Learn.signals(cleaned.text.length > 50 ? cleaned.text : text); // 설교자가 결론지은 문장(문맥 신호)
       const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n) => {
         if (n === 2) flow(2, 'active', '최종 정리 중 (2/2)', '한 장으로 정리하고 색깔 표시를 넣고 있어요');
         if (n === 3) flow(2, 'active', '최종 정리 점검·보충 중', '점검표에서 빠진 항목만 보충하고 있어요');

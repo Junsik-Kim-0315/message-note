@@ -35,8 +35,7 @@
           if (p.seedVer === ver) return p;
           p.seedVer = ver;
           p.guide = s.guide || []; p.vocab = s.vocab || [];
-          // 교회 요약(언약기도) 모범: 기본 패턴의 것과 정리하며 쌓인 것을 합친다
-          p.refs = [...(p.refs || []), ...(s.refs || [])].filter((x, i, a) => a.findIndex((y) => y.ref === x.ref) === i).slice(0, 8);
+          delete p.refs;
           for (const f of FIELDS) p.patterns[f] = [...(p.patterns[f] || []), ...((s.patterns || {})[f] || [])].filter((v, i, a) => a.indexOf(v) === i).slice(0, 12);
           p.term_fixes = { ...(s.term_fixes || {}), ...(p.term_fixes || {}) };
           p.seedFrom = (s.history || []).map((h) => h.title).join(', '); // 기본 패턴의 출처 (편수에는 넣지 않음)
@@ -73,8 +72,6 @@
     }
     const keys = Object.keys(p.term_fixes);
     if (keys.length > 80) keys.slice(0, keys.length - 80).forEach((k) => delete p.term_fixes[k]);
-    // 사용자가 붙여 넣은 교회 요약(언약기도)은 다음 정리의 모범 답안으로 쌓는다
-    if (meta.ref) p.refs = [{ date: meta.date, title: meta.title || notes?.title_guess || '', ref: meta.ref }, ...(p.refs || []).filter((x) => x.ref !== meta.ref)].slice(0, 8);
     const h = { id: sessionId, date: meta.date, title: meta.title || notes?.title_guess || '', points: (notes?.points || []).length };
     p.history = [h, ...(p.history || []).filter((x) => x.id !== sessionId)].slice(0, 50);
     p.sermons = p.history.length;
@@ -89,7 +86,7 @@
 
   // 프롬프트에 넣을 요약
   function toText(p) {
-    if (!p || (!p.sermons && !p.guide?.length && !p.refs?.length)) return '';
+    if (!p || (!p.sermons && !p.guide?.length && !p.patterns?.structure?.length)) return '';
     const lines = [`(지금까지 ${p.sermons}편을 분석함)`];
     if (p.guide?.length) lines.push('[설교 구조 지침]', ...p.guide.map((g) => `- ${g}`), '[관찰된 패턴]');
     if (p.vocab?.length) lines.push(`- 이 설교자의 핵심 어휘(정리할 때 그대로 살릴 것): ${p.vocab.join(', ')}`);
@@ -99,17 +96,15 @@
     }
     const tf = Object.entries(p.term_fixes || {});
     if (tf.length) lines.push(`- 자주 잘못 받아쓰는 말: ${tf.slice(-30).map(([w, r]) => `${w}→${r}`).join(', ')}`);
-    if (p.refs?.length) lines.push('[모범 정리: 교회가 낸 설교 요약(언약기도). 정리할 때 이런 흐름과 말을 목표로 할 것]', ...p.refs.slice(0, 2).map((x) => `- ${x.date || ''} ${x.title || ''}: ${String(x.ref).replace(/\s+/g, ' ').slice(0, 420)}`));
     return lines.join('\n');
   }
   const termsText = (p) => Object.entries(p?.term_fixes || {}).slice(-30).map(([w, r]) => `${w}→${r}`).join(', ');
 
   function toHtml(p, esc) {
-    if (!p || (!p.sermons && !p.guide?.length && !p.refs?.length)) return '<p class="hint">아직 학습한 설교가 없어요. 정리를 한 번 하면 여기에 쌓여요.</p>';
+    if (!p || (!p.sermons && !p.guide?.length && !p.patterns?.structure?.length)) return '<p class="hint">아직 학습한 설교가 없어요. 정리를 한 번 하면 여기에 쌓여요.</p>';
     let h = `<p class="hint"><b>${esc(p.preacher)}</b> · ${p.sermons}편 분석 · 마지막 ${esc((p.updated || '').slice(0, 10))}</p><dl class="learn">`;
     if (p.seedFrom) h += `<dt>기본 패턴 출처</dt><dd>${esc(p.seedFrom)} 받아쓰기 직접 분석</dd>`;
     if (p.guide?.length) h += `<dt>설교 구조 지침</dt><dd>${p.guide.map(esc).join('<br>')}</dd>`;
-    if (p.refs?.length) h += `<dt>모범 정리 (교회 요약·언약기도)</dt><dd>${p.refs.map((x) => `<b>${esc(x.date || '')} ${esc(x.title || '')}</b><br>${esc(String(x.ref).replace(/\[\s*언약\s*기도\s*\]/g, '').trim())}`).join('<br><br>')}</dd>`;
     if (p.vocab?.length) h += `<dt>핵심 어휘</dt><dd>${p.vocab.map(esc).join(' · ')}</dd>`;
     for (const f of ['structure', 'start_cue', 'end_cue', 'intro', 'point_markers', 'transitions', 'illustrations', 'application', 'closing']) {
       const v = p.patterns?.[f];
@@ -148,7 +143,27 @@
     return { text: out.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim(), removed };
   }
 
+  // 문맥 신호: 설교자가 '…이 말이에요', '…이겁니다', '…축복합니다'처럼 한 단락을 결론짓는 문장을 순서대로 뽑는다.
+  // 한 번만 나온 말이라도 결론 자리에 나오면 핵심이다(예: 2부의 '무아지경으로 드디어 살게 된다 이 말이에요').
+  // 설교를 앞·중간·끝 셋으로 나눠 표시해, 중간의 문제 진단·해법이 끝부분에 묻히지 않게 한다.
+  function signals(text) {
+    const sents = String(text || '').replace(/\s+/g, ' ').split(/(?<=[.?!])\s+/);
+    const end = /(이\s*말이에요|이\s*말이야|이\s*말입니다|이겁니다|이거예요|이게\s*핵심|핵심입니다|비밀입니다|축복합니다|하시기를|돼야\s*돼요|해야\s*돼요|해야\s*됩니다|하는\s*거예요|된다는\s*거예요)[.!]?$/;
+    const n = sents.length || 1;
+    const picked = [];
+    // 힘준 말('진짜·반드시·핵심·비밀')과 바로 되풀이한 말('중독입니다, 중독.')도 함께 고른다
+    const emph = /(진짜|반드시|핵심|비밀|명심|기억하|잊지)/;
+    const again = (t, nx) => nx.length < 20 && (t.match(/[가-힣]{2,}/g) || []).some((w) => nx.startsWith(w.slice(0, 2)));
+    sents.forEach((s, i) => { const t = s.trim(); if (t.length >= 12 && t.length <= 220 && (end.test(t) || emph.test(t) || again(t, (sents[i + 1] || '').trim()))) picked.push([i, t]); });
+    // 너무 많으면 앞·중간·끝에서 고르게 덜어 낸다
+    const thirds = [0, 1, 2].map((k) => picked.filter(([i]) => Math.min(2, Math.floor((i * 3) / n)) === k));
+    const per = 25;
+    const thin = (arr) => arr.length <= per ? arr : arr.filter((_, j) => j % Math.ceil(arr.length / per) === 0);
+    const label = ['앞', '중간', '끝'];
+    return thirds.map((a, k) => a.length ? `(${label[k]}) ` + thin(a).map(([, t]) => t).join(' / ') : '').filter(Boolean).join('\n');
+  }
+
   // 정리할 때 반드시 살릴 설교자 핵심 어휘를 넘긴다
   const vocabOf = (p) => (p?.vocab || []).map((v) => String(v).split(/[(]/)[0].trim());
-  window.Learn = { vocabOf, load, merge, save, toText, termsText, toHtml, keyOf, clean };
+  window.Learn = { signals, vocabOf, load, merge, save, toText, termsText, toHtml, keyOf, clean };
 })();
