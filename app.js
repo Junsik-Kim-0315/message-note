@@ -410,6 +410,69 @@
     });
   }
 
+  // mp3 길이를 파일 머리에서 직접 계산한다 (아이폰 Safari는 큰 mp3의 길이를 못 읽을 때가 있음)
+  async function mp3Duration(file) {
+    try {
+      const head = new Uint8Array(await file.slice(0, 10).arrayBuffer());
+      let start = 0;
+      if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) { // ID3 태그 건너뛰기
+        start = 10 + ((head[6] & 0x7f) << 21 | (head[7] & 0x7f) << 14 | (head[8] & 0x7f) << 7 | (head[9] & 0x7f));
+        if (head[5] & 0x10) start += 10;
+      }
+      const buf = new Uint8Array(await file.slice(start, start + 256 * 1024).arrayBuffer());
+      const BR = { 1: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320], 2: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160] };
+      const SR = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+      for (let i = 0; i < buf.length - 4; i++) {
+        if (buf[i] !== 0xff || (buf[i + 1] & 0xe0) !== 0xe0) continue;
+        const ver = (buf[i + 1] >> 3) & 3, layer = (buf[i + 1] >> 1) & 3;
+        const bri = buf[i + 2] >> 4, sri = (buf[i + 2] >> 2) & 3, mode = buf[i + 3] >> 6;
+        if (ver === 1 || layer !== 1 || bri === 0 || bri === 15 || sri === 3) continue; // Layer III만
+        const kbps = BR[ver === 3 ? 1 : 2][bri];
+        const rate = SR[ver][sri];
+        const spf = ver === 3 ? 1152 : 576;
+        // Xing/Info(VBR) 머리가 있으면 프레임 수로 정확히
+        const side = ver === 3 ? (mode === 3 ? 17 : 32) : (mode === 3 ? 9 : 17);
+        const x = i + 4 + side;
+        const tag = String.fromCharCode(buf[x], buf[x + 1], buf[x + 2], buf[x + 3]);
+        if ((tag === 'Xing' || tag === 'Info') && (buf[x + 7] & 1)) {
+          const frames = (buf[x + 8] << 24 | buf[x + 9] << 16 | buf[x + 10] << 8 | buf[x + 11]) >>> 0;
+          if (frames) return (frames * spf) / rate;
+        }
+        return ((file.size - start - i) * 8) / (kbps * 1000);
+      }
+    } catch (e) {}
+    return 0;
+  }
+
+  // m4a(음성 메모) 길이를 moov/mvhd 상자에서 직접 읽는다
+  async function mp4Duration(file) {
+    try {
+      let pos = 0;
+      for (let n = 0; n < 50 && pos < file.size; n++) {
+        const h = new DataView(await file.slice(pos, pos + 16).arrayBuffer());
+        let size = h.getUint32(0);
+        const type = String.fromCharCode(h.getUint8(4), h.getUint8(5), h.getUint8(6), h.getUint8(7));
+        if (size === 1) size = Number(h.getBigUint64(8));
+        else if (size === 0) size = file.size - pos;
+        if (type === 'moov') {
+          const m = new Uint8Array(await file.slice(pos, pos + Math.min(size, 8 * 1024 * 1024)).arrayBuffer());
+          for (let i = 8; i < m.length - 32; i++) {
+            if (m[i] === 0x6d && m[i + 1] === 0x76 && m[i + 2] === 0x68 && m[i + 3] === 0x64) { // 'mvhd'
+              const v = new DataView(m.buffer, i + 4);
+              if (v.getUint8(0) === 1) return Number(v.getBigUint64(24)) / v.getUint32(20);
+              return v.getUint32(16) / v.getUint32(12);
+            }
+          }
+          return 0;
+        }
+        if (size < 8) return 0;
+        pos += size;
+      }
+    } catch (e) {}
+    return 0;
+  }
+  const fileDuration = async (file) => (isMp3(file) ? await mp3Duration(file) : await mp4Duration(file)) || (await audioDuration(file));
+
   async function processFile(file) {
     if (!cfg.key) { openSettings(); toast('먼저 Gemini API 키를 넣어주세요.'); return; }
     if (rec) { toast('녹음 중에는 파일을 올릴 수 없어요.'); return; }
@@ -448,7 +511,7 @@
   }
 
   async function prepareMp3(file, resume) {
-    const total = await audioDuration(file);
+    const total = await fileDuration(file);
     if (!total) throw new Error('녹음 파일 길이를 읽지 못했어요. 음성 메모(m4a)나 mp3 파일인지 확인해 주세요.');
     const bps = file.size / total;
     const step = Math.max(60, Math.min(REMOTE_SEG_SEC, Math.floor(MP3_MAX_BYTES / bps)));
@@ -464,7 +527,7 @@
   }
 
   async function prepareRemote(file, resume) {
-    const total = await audioDuration(file);
+    const total = await fileDuration(file);
     if (!total) throw new Error('녹음 파일 길이를 읽지 못했어요. 음성 메모(m4a)나 mp3 파일인지 확인해 주세요.');
     flow(0, 'active', '녹음 파일 올리는 중 0%', '와이파이에서 화면을 켜 둔 채로 기다려 주세요');
     const ref = await Gemini.uploadFile(cfg, file, (p) => flow(0, 'active', `녹음 파일 올리는 중 ${Math.round(p * 100)}%`, p >= 1 ? 'Gemini가 파일을 처리하고 있어요' : '와이파이에서 화면을 켜 둔 채로 기다려 주세요'));
@@ -669,7 +732,7 @@
   function openSettings() {
     $('cfgKey').value = cfg.key; $('cfgSttModel').value = cfg.sttModel; $('cfgAnaModel').value = cfg.anaModel; $('cfgLiveMin').value = cfg.liveMin; $('cfgRpm').value = cfg.rpm;
     $('googleState').textContent = Drive.hasToken() ? '연결됨' : '';
-    $('appVersion').textContent = '앱 버전 2026-11-22c';
+    $('appVersion').textContent = '앱 버전 2026-11-22d';
     $('testState').textContent = '';
     $('settings').showModal();
   }
