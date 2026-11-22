@@ -5,7 +5,7 @@
   const TARGET_RATE = 16000;
 
   // ---------- 설정 ----------
-  const DEFAULT_CFG = { key: '', sttModel: 'gemini-2.5-flash', anaModel: 'gemini-2.5-flash', liveMin: 3 };
+  const DEFAULT_CFG = { key: '', sttModel: 'gemini-2.5-flash', anaModel: 'gemini-2.5-flash', liveMin: 3, rpm: 8 };
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
@@ -84,8 +84,31 @@
       $('bannerDetail').textContent = detail;
       setStatus(title);
       if (kind === 'done' && navigator.vibrate) navigator.vibrate(200);
+      // 받아쓰기 외 단계도 위 고정 막대에 보여준다
+      if (kind === 'active' && i !== 1) {
+        const bar = $('progress'); bar.hidden = false; bar.classList.remove('has-fail');
+        bar.querySelector('.fill').style.width = /(\d+)%/.test(title) ? `${title.match(/(\d+)%/)[1]}%` : '100%';
+        bar.querySelector('.ptext').textContent = `${title}${detail ? ` · ${detail}` : ''}`;
+      } else if (i !== 1 || kind !== 'active') updateProgress();
     }
   }
+  // 받아쓰기 진행 막대 (화면 위에 고정)
+  function updateProgress() {
+    const segs = S.segments.filter((s) => s.status !== 'gap');
+    const busy = segs.some((s) => s.status === 'pending');
+    const bar = $('progress');
+    if (!segs.length || (!busy && !segs.some((s) => s.status === 'failed'))) { bar.hidden = true; return; }
+    const done = segs.filter((s) => s.status === 'done').length;
+    const failed = segs.filter((s) => s.status === 'failed').length;
+    const left = segs.length - done - failed;
+    bar.hidden = false;
+    bar.querySelector('.fill').style.width = `${Math.round((done / segs.length) * 100)}%`;
+    bar.querySelector('.ptext').textContent = `받아쓰기 ${done}/${segs.length} 완료` + (left ? ` · 남은 ${left}개` : '') + (failed ? ` · 실패 ${failed}개` : '')
+      + (busy && left ? ` · 약 ${Math.max(1, Math.ceil(left / Math.max(1, Number(cfg.rpm) || 8)))}분 남음` : '');
+    bar.classList.toggle('has-fail', failed > 0 && !busy);
+  }
+  setInterval(() => { if (S.segments.some((s) => s.waitUntil)) { renderSegments(); } }, 1000);
+
   function resetFlow() { steps = ['idle', 'idle', 'idle', 'idle']; $('steps').innerHTML = ''; $('banner').hidden = true; flow(0, 'idle'); }
 
   // ---------- 받아쓰기 목록 ----------
@@ -94,10 +117,12 @@
   function renderSegments() {
     $('trEmpty').hidden = S.segments.length > 0;
     $('trList').innerHTML = S.segments.map((s) => {
-      const label = s.status === 'pending' ? '받아쓰는 중…' : s.status === 'failed' ? '인식 실패' : '';
+      const waiting = s.waitUntil && s.waitUntil > Date.now() ? ` (한도 초과, ${Math.ceil((s.waitUntil - Date.now()) / 1000)}초 뒤 다시)` : '';
+      const label = s.status === 'pending' ? (s.active ? `받아쓰는 중…${waiting}` : '대기 중') : s.status === 'failed' ? `인식 실패${s.err ? ` · ${esc(s.err)}` : ''}` : '';
       const retry = s.status === 'failed' && (wavs.has(s.i) || fileJob) ? ` <button class="btn" data-retry="${s.i}">다시</button>` : '';
       return `<div class="seg ${s.status}"><div class="t">${fmt(s.t)} ${label}${retry}</div>${esc(s.text || '')}</div>`;
     }).join('');
+    updateProgress();
     const nFail = S.segments.filter((s) => s.status === 'failed').length;
     $('btnRetryFailed').hidden = !nFail;
     $('btnRetryFailed').textContent = `실패한 구간 다시 (${nFail}개)`;
@@ -140,24 +165,48 @@
   }
 
   // ---------- 받아쓰기 ----------
+  // 받아쓰기 요청 속도 조절: 무료 키는 분당 요청 수 한도가 낮아서(약 10회) 몰아 보내면 429로 실패한다
+  let nextSlot = 0;
+  async function rateGate() {
+    const gap = 60000 / Math.max(1, Number(cfg.rpm) || 8);
+    const now = Date.now();
+    const wait = Math.max(0, nextSlot - now);
+    nextSlot = Math.max(now, nextSlot) + gap;
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+  }
+
   async function transcribeSeg(seg, prevTail) {
     let wav = wavs.get(seg.i);
     if (typeof wav === 'function') wav = wav();
-    if (!wav) { seg.status = 'failed'; return; }
-    for (let attempt = 0; attempt < 3; attempt++) {
+    if (!wav) { seg.status = 'failed'; seg.err = '원본 소리가 없어요'; return; }
+    let other = 0;
+    seg.active = true;
+    try {
+    for (let attempt = 0; attempt < 8; attempt++) {
       try {
+        await rateGate();
         seg.text = wav.remote
           ? await Gemini.transcribeRange(cfg, wav.remote, wav.from, wav.to)
           : wav.blob
             ? await Gemini.transcribe(cfg, wav.blob, '', { mime: wav.mime, approxSec: wav.sec })
             : await Gemini.transcribe(cfg, wav, prevTail);
-        seg.status = 'done'; wavs.delete(seg.i);
+        seg.status = 'done'; seg.err = ''; wavs.delete(seg.i);
         return;
       } catch (e) {
-        if (attempt === 2) { seg.status = 'failed'; toast(e.message); }
-        else await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        seg.err = e.message;
+        const limited = e.status === 429 || e.status === 503;
+        if (!limited) other++;
+        if (other >= 3 || attempt === 7) { seg.status = 'failed'; return; }
+        // 한도 초과면 알려준 시간만큼(없으면 점점 길게) 쉬고 다시
+        const wait = limited ? (e.retryAfter || 15000 * (attempt + 1)) : 3000 * (attempt + 1);
+        if (limited) nextSlot = Math.max(nextSlot, Date.now() + wait);
+        seg.waitUntil = Date.now() + wait;
+        renderSegments(); updateProgress();
+        await new Promise((r) => setTimeout(r, wait));
+        seg.waitUntil = 0;
       }
     }
+    } finally { seg.active = false; }
   }
 
   // 실시간 녹음은 순서대로 (앞 구간 끝부분을 문맥으로 넘김)
@@ -339,7 +388,7 @@
   //  - mp3: 바이트를 5분 분량씩 잘라 그대로 보낸다 (mp3는 잘라도 재생됨, 디코딩이 필요 없어 빠르고 가벼움)
   //  - 작은 m4a/wav: 휴대폰에서 풀어 1분씩 WAV로
   //  - 큰 m4a 등: Gemini에 파일째 올리고 5분 구간별로
-  const FILE_SEG_SEC = 60;
+  const FILE_SEG_SEC = 300; // 요청 수를 줄이려고 5분씩 (16kHz WAV 약 9.6MB)
   const BIG_FILE = 15 * 1024 * 1024;
   const REMOTE_SEG_SEC = 300;
   const MP3_MAX_BYTES = 12 * 1024 * 1024;
@@ -458,7 +507,7 @@
     flow(0, 'done', '녹음 파일 준비 완료');
     const update = () => flow(1, 'active', `받아쓰기 ${done}/${list.length}`, '화면을 켜 둔 채로 기다려 주세요');
     update();
-    // 3개씩 동시에 받아쓰기
+    // 2개씩 동시에 받아쓰기 (속도는 rateGate가 조절)
     let next = 0;
     const worker = async () => {
       while (next < list.length) {
@@ -467,7 +516,7 @@
         done++; update(); renderSegments(); persist();
       }
     };
-    await Promise.all([worker(), worker(), worker()]);
+    await Promise.all([worker(), worker()]);
     persist();
     renderAll();
     const failed = S.segments.filter((s) => s.status === 'failed').length;
@@ -618,8 +667,9 @@
 
   // ---------- 설정 창 ----------
   function openSettings() {
-    $('cfgKey').value = cfg.key; $('cfgSttModel').value = cfg.sttModel; $('cfgAnaModel').value = cfg.anaModel; $('cfgLiveMin').value = cfg.liveMin;
+    $('cfgKey').value = cfg.key; $('cfgSttModel').value = cfg.sttModel; $('cfgAnaModel').value = cfg.anaModel; $('cfgLiveMin').value = cfg.liveMin; $('cfgRpm').value = cfg.rpm;
     $('googleState').textContent = Drive.hasToken() ? '연결됨' : '';
+    $('appVersion').textContent = '앱 버전 2026-11-22c';
     $('testState').textContent = '';
     $('settings').showModal();
   }
@@ -629,6 +679,7 @@
       sttModel: $('cfgSttModel').value.trim() || DEFAULT_CFG.sttModel,
       anaModel: $('cfgAnaModel').value.trim() || DEFAULT_CFG.anaModel,
       liveMin: Math.min(15, Math.max(1, Number($('cfgLiveMin').value) || 3)),
+      rpm: Math.min(60, Math.max(1, Number($('cfgRpm').value) || 8)),
     };
   }
   $('btnSettings').addEventListener('click', openSettings);

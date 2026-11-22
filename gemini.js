@@ -28,13 +28,18 @@
           const msg = data.error?.message || '';
           // 이 모델이 생각 예산 설정을 받지 않으면 빼고 다시
           if (withThinking && thinking != null && res.status === 400 && /thinking/i.test(msg)) return send(false);
-          throw new Error(`Gemini 오류 ${res.status}: ${msg}`.trim());
+          const err = new Error(res.status === 429 ? 'Gemini 사용 한도 초과(429): 잠시 뒤 자동으로 다시 해요' : `Gemini 오류 ${res.status}: ${msg}`.trim());
+          err.status = res.status;
+          // 429일 때 Gemini가 알려주는 대기 시간 (예: "37s")
+          const ri = (data.error?.details || []).find((d) => d.retryDelay);
+          if (ri) err.retryAfter = parseFloat(ri.retryDelay) * 1000;
+          throw err;
         }
         const text = (data.candidates?.[0]?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
         if (!json) return text.trim();
         return parseJson(text);
       } catch (e) {
-        if (e.name === 'AbortError') throw new Error(`Gemini 응답이 너무 오래 걸려요 (${Math.round(timeoutMs / 1000)}초 넘음).`);
+        if (e.name === 'AbortError') { const t = new Error(`Gemini 응답이 너무 오래 걸려요 (${Math.round(timeoutMs / 1000)}초 넘음).`); t.status = 'timeout'; throw t; }
         throw e;
       } finally {
         clearTimeout(timer);

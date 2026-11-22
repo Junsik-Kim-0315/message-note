@@ -12,13 +12,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=20261122c">
 </head>
 <body>
-<header class="topbar">
+<header class="topbar-wrap"><div class="topbar">
   <div class="brand">말씀 정리</div>
   <div class="status" id="status">대기 중</div>
   <button class="icon-btn" id="btnSettings">설정</button>
+</div>
+  <div class="progress" id="progress" hidden><div class="track"><div class="fill"></div></div><div class="ptext"></div></div>
 </header>
 
 <main>
@@ -91,6 +93,9 @@
     <label>받아쓰기 모델<input id="cfgSttModel" placeholder="gemini-2.5-flash"></label>
     <label>정리·분석 모델<input id="cfgAnaModel" placeholder="gemini-2.5-flash"></label>
     <label>실시간 정리 간격(분)<input id="cfgLiveMin" type="number" min="1" max="15" step="1"></label>
+    <label>분당 받아쓰기 요청 수<input id="cfgRpm" type="number" min="1" max="60" step="1"></label>
+    <p class="hint">무료 Gemini 키는 분당 약 10회까지라 8을 권해요. 유료 키면 올려도 돼요.</p>
+    <p class="hint" id="appVersion"></p>
     <div class="row">
       <button type="button" id="btnGoogle" class="btn">구글 드라이브 연결</button>
       <span id="googleState" class="hint"></span>
@@ -109,10 +114,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="markup.js"></script>
-<script src="pdf.js"></script>
-<script src="drive.js"></script>
-<script src="gemini.js"></script>
-<script src="app.js"></script>
+<script src="markup.js?v=20261122c"></script>
+<script src="pdf.js?v=20261122c"></script>
+<script src="drive.js?v=20261122c"></script>
+<script src="gemini.js?v=20261122c"></script>
+<script src="app.js?v=20261122c"></script>
 </body>
 </html>
