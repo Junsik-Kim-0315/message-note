@@ -191,3 +191,4 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 @media (max-width: 480px) { .topbar .status { visibility: hidden; } }
 .hist-h { font-size: 15px; margin: 14px 0 0; }
 #history .btn { margin-top: 6px; }
+.app-foot { text-align: center; color: var(--muted); font-size: 12px; margin: 28px 0 8px; }

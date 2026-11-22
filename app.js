@@ -897,7 +897,6 @@
   function openSettings() {
     $('cfgKey').value = cfg.key; $('cfgSttModel').value = cfg.sttModel; $('cfgAnaModel').value = cfg.anaModel; $('cfgLiveMin').value = cfg.liveMin; $('cfgRpm').value = cfg.rpm;
     $('googleState').textContent = Drive.hasToken() ? '연결됨' : '';
-    $('appVersion').textContent = '앱 버전 2026-11-22g';
     $('testState').textContent = '';
     $('settings').showModal();
   }
