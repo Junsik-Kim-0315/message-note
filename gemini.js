@@ -69,7 +69,7 @@
   async function transcribe(cfg, blob, prevTail, { mime = 'audio/wav', approxSec = 30 } = {}) {
     const len = approxSec >= 60 ? `약 ${Math.round(approxSec / 60)}분` : `약 ${approxSec}초`;
     const prompt = `이 오디오는 한국 교회 현장 예배 녹음의 ${len} 구간입니다.
-들리는 말을 한국어로 그대로 받아쓰세요.
+들리는 말을 한국어로 처음부터 끝까지 빠짐없이 그대로 받아쓰세요. 요약하거나 줄이지 마세요.
 - 성경 책 이름, 장·절, 교회 용어(은혜, 성령, 언약 등)는 바른 표기로 쓰세요.
 - 잘 들리지 않는 부분은 지어내지 말고 생략하세요.
 - 찬양·연주는 (찬양), 다 같이 하는 기도·신앙고백·광고는 (기도), (광고)처럼 한 줄로만 표시하고, 말소리가 없으면 아무것도 출력하지 마세요.
@@ -147,45 +147,79 @@ ${transcript}`;
     return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 0, timeoutMs: 90000 });
   }
 
-  async function finalDoc(cfg, meta, transcript) {
-    const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래는 현장 예배의 음성인식 받아쓰기 전체입니다. 찬양, 기도, 광고, 헌금, 축도 등 설교가 아닌 부분이 섞여 있을 수 있으니 설교 부분만 골라 정리하세요(설교 전 성경 봉독은 본문 파악에 활용). 음성인식 오류는 문맥으로 바로잡되, 설교자가 말하지 않은 내용을 덧붙이지 마세요(단, '여러 관점' 항목은 본문의 배경 지식을 보충해도 됩니다).
+  // 최종 정리는 두 단계로 한다.
+  // 1단계: 예배 전체 받아쓰기에서 설교 부분을 찾아 처음부터 끝까지 흐름을 빠짐없이 상세 노트로 뽑는다.
+  // 2단계: 그 노트를 A4 한 장 분량으로 압축하고 색깔 표시를 넣는다.
+  // (한 번에 하면 긴 받아쓰기에서 마지막 부분만 붙잡아 정리하는 문제가 있었다)
+  const infoLine = (meta) => `설교 정보: 날짜 ${meta.date} / 예배 ${meta.service_type || ''} / 설교자 ${meta.preacher || '미상'} / 사용자가 적은 제목 ${meta.title || '(없음, 추정할 것)'} / 사용자가 적은 본문 말씀 ${meta.scripture || '(없음, 추정할 것)'}`;
 
-설교 정보: 날짜 ${meta.date} / 예배 ${meta.service_type || ''} / 설교자 ${meta.preacher || '미상'} / 사용자가 적은 제목 ${meta.title || '(없음, 추정할 것)'} / 사용자가 적은 본문 말씀 ${meta.scripture || '(없음, 추정할 것)'}
-본문 말씀이 주어졌으면 그것을 주 본문으로 삼고(scripture_main에 '출애굽기 25:1-9'처럼 책 이름을 풀어 쓴 형태로), 그 본문의 내용과 문맥에 비추어 설교를 해석하세요. 받아쓰기의 성경 구절 오인식도 이 본문을 기준으로 바로잡으세요.
+  async function sermonNotes(cfg, meta, transcript) {
+    const prompt = `당신은 한국 교회 설교를 꼼꼼히 듣고 노트하는 조교입니다. 아래는 현장 예배 전체의 음성인식 받아쓰기입니다(오타가 있으니 문맥으로 바로잡아 이해하세요).
+${infoLine(meta)}
 
-설교를 문맥에 따라 서론·본론(대지별)·결론으로 재구성하고 아래 JSON 하나만 출력하세요.
+할 일:
+1. 찬양, 대표기도, 광고, 헌금, 축도 등을 빼고 '설교'가 시작되는 곳과 끝나는 곳을 찾으세요. 설교 전 성경 봉독이 있으면 본문 파악에 쓰세요.
+2. 설교의 처음부터 끝까지 흐름을 시간 순서대로 빠짐없이 노트하세요. 마지막 부분만이 아니라 앞·중간 부분의 주장과 설명을 반드시 고르게 담으세요. 설교의 대부분은 본론입니다.
+3. 설교자가 실제로 한 말을 근거로 하고, 핵심 문장은 받아쓰기에서 그대로(오타만 고쳐) 인용하세요.
+
+아래 JSON 하나만 출력하세요.
 {
- "title": "설교 제목",
- "scripture_main": "주 본문 (예: 요한복음 3:16-21)",
- "scriptures": ["설교에서 인용된 구절들"],
- "category": "주제 분류 하나 (예: 믿음, 기도, 구원, 영적 전쟁, 공동체, 고난, 감사, 선교, 성품, 가정 중 가장 알맞은 것 또는 새 분류)",
- "tags": ["주제 태그 3~6개"],
- "one_line": "설교 핵심 한 문장(표시 문법 가능)",
- "summary": ["한눈에 보는 요약 3~5줄"],
- "intro": ["서론 문단들"],
- "body": [{"heading": "1. 첫째 대지 제목", "verses": ["이 대지의 구절"], "paragraphs": ["문단들"]}],
- "conclusion": ["결론 문단들"],
- "perspectives": {
-   "context": ["본문의 역사적·문학적 문맥과 배경"],
-   "theology": ["신학적 메시지와 성경 전체 흐름에서의 의미"],
-   "application": ["오늘 내 삶에 적용할 점"]
- },
- "key_terms": [{"term": "용어", "meaning": "설교에서의 의미"}],
- "questions": ["묵상·적용 질문 3~5개"]
+ "sermon_found": true,
+ "scripture_main": "주 본문",
+ "title_guess": "설교 제목 추정",
+ "big_idea": "설교 전체를 꿰는 중심 메시지 한두 문장",
+ "intro": ["서론에서 한 말의 요지들"],
+ "points": [{"heading": "대지(소제목)", "claims": ["이 부분의 주장·설명 요지들"], "verses": ["인용 구절"], "illustrations": ["예화·간증 한 줄 요약"], "quotes": ["핵심 문장 원문"]}],
+ "conclusion": ["결론·결단 촉구의 요지들"],
+ "application": ["설교자가 제시한 적용"],
+ "spiritual_warfare": ["마귀·사단·악한 영·유혹 관련 발언 (없으면 빈 배열)"],
+ "scriptures": ["설교 중 인용된 모든 구절"]
 }
-이 정리는 A4 한 장에 들어가야 합니다. 분량을 꼭 지키세요(전체 1,300자 안팎).
-- summary 3줄, 각 줄 짧게
-- intro 1문단(2~3문장)
-- body 대지 2~4개, 대지마다 1문단(2~4문장)
-- conclusion 1문단(2~3문장)
-- perspectives의 context, theology, application은 각각 1문장
-- key_terms 최대 3개(뜻은 짧게), questions 2~3개
-문장은 설교자의 말투를 살리되 간결한 문어체로 쓰고, 예화와 간증은 한 줄로 핵심만 남기세요.
-${MARK_RULES}
+대지는 설교자가 '첫째, 둘째'처럼 나눴으면 그대로, 아니면 내용 흐름에 따라 2~5개로 나누세요.
 
 [받아쓰기 전체]
 ${transcript}`;
-    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000 });
+    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 2048, timeoutMs: 300000 });
+  }
+
+  async function finalDoc(cfg, meta, transcript, onStep) {
+    onStep?.(1);
+    const notes = await sermonNotes(cfg, meta, transcript);
+    onStep?.(2);
+    const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래는 한 편의 설교를 처음부터 끝까지 노트한 자료입니다. 이것을 A4 한 장짜리 정리본으로 만드세요.
+${infoLine(meta)}
+본문 말씀이 주어졌으면 그것을 주 본문으로 삼고(scripture_main에 '출애굽기 25:1-9'처럼 책 이름을 풀어 쓴 형태로), 그 본문의 내용과 문맥에 비추어 설교를 해석하세요.
+
+중요:
+- 설교 전체 흐름을 고르게 담으세요. 본론(대지들)이 가장 길고 비중이 커야 하며, 결론은 짧게 마무리만 합니다.
+- one_line과 초록 표시는 노트의 big_idea와 각 대지의 핵심 주장에서 뽑으세요(마지막 당부만으로 채우지 마세요).
+- 노트에 없는 내용을 설교자가 한 말처럼 지어내지 마세요('여러 관점'은 본문 배경 지식을 보충해도 됩니다).
+
+아래 JSON 하나만 출력하세요.
+{
+ "title": "설교 제목",
+ "scripture_main": "주 본문",
+ "scriptures": ["설교에서 인용된 구절들"],
+ "category": "주제 분류 하나 (예: 믿음, 기도, 구원, 영적 전쟁, 공동체, 고난, 감사, 선교, 성품, 예배, 가정 중 가장 알맞은 것 또는 새 분류)",
+ "tags": ["주제 태그 3~6개"],
+ "one_line": "설교 핵심 한 문장(표시 문법 가능)",
+ "summary": ["한눈에 보는 요약 3줄"],
+ "intro": ["서론 1문단"],
+ "body": [{"heading": "1. 대지 제목", "verses": ["이 대지의 구절"], "paragraphs": ["문단"]}],
+ "conclusion": ["결론 1문단"],
+ "perspectives": {"context": ["본문의 역사적·문학적 문맥 1문장"], "theology": ["신학적 메시지 1문장"], "application": ["삶의 적용 1문장"]},
+ "key_terms": [{"term": "용어", "meaning": "설교에서의 의미"}],
+ "questions": ["묵상·적용 질문 2~3개"]
+}
+분량(전체 1,300~1,500자): summary 3줄 / intro 2~3문장 / body 대지 2~4개, 대지마다 1문단 3~4문장 / conclusion 2문장 / key_terms 최대 3개.
+문장은 설교자의 말투를 살리되 간결한 문어체로 쓰세요.
+${MARK_RULES}
+
+[설교 노트]
+${JSON.stringify(notes, null, 1)}`;
+    const doc = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000 });
+    doc._notes = notes;
+    return doc;
   }
 
   async function ping(cfg) {

@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261122d">
+<link rel="stylesheet" href="style.css?v=20261122e">
 </head>
 <body>
 <header class="topbar-wrap"><div class="topbar">
@@ -63,6 +63,7 @@
 
   <section class="panel" id="panel-transcript">
     <div class="empty" id="trEmpty">받아쓴 내용이 30초 단위로 여기에 쌓여요.</div>
+<div class="row"><span class="hint" id="trStats"></span><button id="btnCopyTr" class="btn" hidden>받아쓰기 전체 복사</button></div>
     <button id="btnRetryFailed" class="btn primary" hidden>실패한 구간 다시</button>
     <div id="trList"></div>
     <div id="trEditWrap" hidden>
@@ -74,7 +75,7 @@
   <section class="panel" id="panel-result">
     <div class="empty" id="resEmpty">녹음을 마치면 서론·본론·결론으로 정리된 결과가 여기에 나와요.</div>
     <div class="actions" id="resActions" hidden>
-      <button id="btnFinal" class="btn">최종 정리 다시 만들기</button>
+      <button id="btnFinal" class="btn">정리만 다시 하기</button>
       <button id="btnDrive" class="btn primary">구글 드라이브에 저장</button>
       <button id="btnShare" class="btn">PDF 공유·내려받기</button>
     </div>
@@ -114,10 +115,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="markup.js?v=20261122d"></script>
-<script src="pdf.js?v=20261122d"></script>
-<script src="drive.js?v=20261122d"></script>
-<script src="gemini.js?v=20261122d"></script>
-<script src="app.js?v=20261122d"></script>
+<script src="markup.js?v=20261122e"></script>
+<script src="pdf.js?v=20261122e"></script>
+<script src="drive.js?v=20261122e"></script>
+<script src="gemini.js?v=20261122e"></script>
+<script src="app.js?v=20261122e"></script>
 </body>
 </html>

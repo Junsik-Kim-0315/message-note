@@ -120,9 +120,13 @@
       const waiting = s.waitUntil && s.waitUntil > Date.now() ? ` (한도 초과, ${Math.ceil((s.waitUntil - Date.now()) / 1000)}초 뒤 다시)` : '';
       const label = s.status === 'pending' ? (s.active ? `받아쓰는 중…${waiting}` : '대기 중') : s.status === 'failed' ? `인식 실패${s.err ? ` · ${esc(s.err)}` : ''}` : '';
       const retry = s.status === 'failed' && (wavs.has(s.i) || fileJob) ? ` <button class="btn" data-retry="${s.i}">다시</button>` : '';
-      return `<div class="seg ${s.status}"><div class="t">${fmt(s.t)} ${label}${retry}</div>${esc(s.text || '')}</div>`;
+      const cnt = s.status === 'done' && s.text ? ` · ${s.text.length}자` : '';
+      return `<div class="seg ${s.status}"><div class="t">${fmt(s.t)}${cnt} ${label}${retry}</div>${esc(s.text || '')}</div>`;
     }).join('');
     updateProgress();
+    const total = transcriptText().length;
+    $('trStats').textContent = total ? `받아쓴 글자 ${total.toLocaleString()}자 · ${S.segments.filter((s) => s.status === 'done').length}구간` : '';
+    $('btnCopyTr').hidden = !total;
     const nFail = S.segments.filter((s) => s.status === 'failed').length;
     $('btnRetryFailed').hidden = !nFail;
     $('btnRetryFailed').textContent = `실패한 구간 다시 (${nFail}개)`;
@@ -608,6 +612,10 @@
     }
   }
   $('btnRetryFailed').addEventListener('click', retryFailed);
+  $('btnCopyTr').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(transcriptText()); toast('받아쓰기 전체를 복사했어요.'); }
+    catch (e) { toast('복사하지 못했어요.'); }
+  });
 
   $('btnFile').addEventListener('click', () => $('fileInput').click());
   $('fileInput').addEventListener('change', (e) => {
@@ -655,11 +663,13 @@
     if (finalBusy) return;
     finalBusy = true;
     showTab('result');
-    flow(1, 'done'); flow(2, 'active', '최종 정리 중', '설교 전체를 다시 읽고 있어요 (1~2분)');
-    $('resEmpty').hidden = false; $('resEmpty').textContent = '설교 전체를 다시 읽고 정리하고 있어요. 1~2분 걸려요.';
+    flow(1, 'done'); flow(2, 'active', '최종 정리 중 (1/2)', '설교 부분을 찾아 처음부터 끝까지 흐름을 파악하고 있어요');
+    $('resEmpty').hidden = false; $('resEmpty').textContent = '설교 전체를 다시 읽고 정리하고 있어요. 2~3분 걸려요.';
     try {
       const meta = readMeta();
-      const doc = await Gemini.finalDoc(cfg, meta, text);
+      const doc = await Gemini.finalDoc(cfg, meta, text, (n) => {
+        if (n === 2) flow(2, 'active', '최종 정리 중 (2/2)', '한 장으로 정리하고 색깔 표시를 넣고 있어요');
+      });
       doc.date = meta.date;
       doc.service_type = meta.service_type;
       if (meta.preacher) doc.preacher = meta.preacher;
@@ -732,7 +742,7 @@
   function openSettings() {
     $('cfgKey').value = cfg.key; $('cfgSttModel').value = cfg.sttModel; $('cfgAnaModel').value = cfg.anaModel; $('cfgLiveMin').value = cfg.liveMin; $('cfgRpm').value = cfg.rpm;
     $('googleState').textContent = Drive.hasToken() ? '연결됨' : '';
-    $('appVersion').textContent = '앱 버전 2026-11-22d';
+    $('appVersion').textContent = '앱 버전 2026-11-22e';
     $('testState').textContent = '';
     $('settings').showModal();
   }
