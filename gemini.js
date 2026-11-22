@@ -20,7 +20,8 @@
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
-        const generationConfig = { temperature, ...(json ? { responseMimeType: 'application/json' } : {}) };
+        // 긴 설교(90분 이상)는 노트 JSON이 길어 기본 출력 한도에서 잘린다 → 출력 한도를 넉넉히
+        const generationConfig = { temperature, maxOutputTokens: json ? 65536 : 16384, ...(json ? { responseMimeType: 'application/json' } : {}) };
         if (withThinking && thinking != null) generationConfig.thinkingConfig = { thinkingBudget: thinking };
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
           method: 'POST',
@@ -40,9 +41,13 @@
           if (ri) err.retryAfter = parseFloat(ri.retryDelay) * 1000;
           throw err;
         }
-        const text = (data.candidates?.[0]?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
+        const cand = data.candidates?.[0] || {};
+        const text = (cand.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
         if (!json) return text.trim();
-        return parseJson(text);
+        try { return parseJson(text); } catch (e) {
+          e.truncated = cand.finishReason === 'MAX_TOKENS';
+          throw e;
+        }
       } catch (e) {
         if (e.name === 'AbortError') { const t = new Error(`Gemini 응답이 너무 오래 걸려요 (${Math.round(timeoutMs / 1000)}초 넘음).`); t.status = 'timeout'; throw t; }
         throw e;
@@ -55,11 +60,36 @@
 
   function parseJson(text) {
     const t = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-    try { return JSON.parse(t); } catch (e) {
-      const s = t.indexOf('{'), en = t.lastIndexOf('}');
-      if (s >= 0 && en > s) return JSON.parse(t.slice(s, en + 1));
-      throw new Error('정리 결과를 읽지 못했어요. 다시 시도해 주세요.');
+    try { return JSON.parse(t); } catch (e) {}
+    const s0 = t.indexOf('{');
+    const body = s0 >= 0 ? t.slice(s0) : t;
+    try { const en = body.lastIndexOf('}'); if (en > 0) return JSON.parse(body.slice(0, en + 1)); } catch (e) {}
+    // 응답이 중간에 잘린 경우: 마지막 완전한 값까지 남기고 열린 괄호를 닫아 살린다
+    const fixed = repairJson(body);
+    if (fixed) { try { return JSON.parse(fixed); } catch (e) {} }
+    throw new Error('정리 결과를 읽지 못했어요(응답이 잘렸어요). 다시 시도해 주세요.');
+  }
+  function repairJson(src) {
+    const stack = []; let inStr = false, esc = false, lastSafe = -1;
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i];
+      if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true;
+      else if (c === '{' || c === '[') stack.push(c === '{' ? '}' : ']');
+      else if (c === '}' || c === ']') { stack.pop(); lastSafe = i; }
+      else if (c === ',') lastSafe = i - 1;
     }
+    if (lastSafe < 0) return '';
+    // 마지막 안전한 지점까지 자르고, 그 지점 기준으로 열린 괄호를 다시 센다
+    let cut = src.slice(0, lastSafe + 1).replace(/[,:\s]+$/, '');
+    const st = []; inStr = false; esc = false;
+    for (const c of cut) {
+      if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true; else if (c === '{' || c === '[') st.push(c === '{' ? '}' : ']'); else if (c === '}' || c === ']') st.pop();
+    }
+    if (inStr) return '';
+    cut = cut.replace(/,\s*"[^"]*"\s*$/, ''); // 값 없이 남은 키 제거
+    return cut + st.reverse().join('');
   }
 
   function blobToBase64(blob) {
@@ -253,10 +283,19 @@ ${profileText}
  "term_fixes": [{"wrong": "받아쓰기에 잘못 나온 말", "right": "바른 말"}]
 }
 대지는 설교자가 '첫째, 둘째'처럼 나눴으면 그대로, 아니면 내용 흐름에 따라 2~5개로 나누세요.
+분량: 원문 인용은 핵심 한 문장씩만 짧게, 같은 내용을 여러 필드에 되풀이하지 말고, 전체 JSON은 15,000자 이내로 쓰세요(설교가 90분 넘게 길어도).
 
 [받아쓰기 전체]
 ${transcript}`;
-    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 2048, timeoutMs: longWait(300000, transcript, 4000, 600000) });
+    const opt = { json: true, temperature: 0.2, thinking: 2048, timeoutMs: longWait(300000, transcript, 4000, 600000) };
+    try {
+      return await call(cfg, cfg.anaModel, [{ text: prompt }], opt);
+    } catch (e) {
+      // 긴 설교에서 노트가 너무 길어 응답이 잘리거나 깨지면, 더 짧게 쓰라고 한 번 더 요청한다
+      if (!/정리 결과를 읽지 못했어요/.test(e.message || '')) throw e;
+      const short = prompt.replace('아래 JSON 하나만 출력하세요.', '아래 JSON 하나만 출력하세요. 앞선 응답이 너무 길어 잘렸으니 이번에는 간결하게: 인용은 한 문장씩만, 배열마다 항목은 많아야 6개, 전체 8,000자 이내로 쓰세요.');
+      return call(cfg, cfg.anaModel, [{ text: short }], opt);
+    }
   }
 
   // 받침에 맞는 조사: 성막을, 예배를
