@@ -201,3 +201,10 @@ input, select, textarea { box-sizing: border-box; max-width: 100%; min-width: 0;
 input[type="date"] { -webkit-appearance: none; appearance: none; min-height: 42px; text-align: left; }
 input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .row > label { min-width: 0; }
+
+/* 한 문단 정리 */
+.para-box { margin: 12px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.para-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.para-acts { display: flex; gap: 6px; }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+.para-text { margin: 0; line-height: 1.9; font-family: "Noto Serif KR", serif; font-size: 16px; word-break: keep-all; }

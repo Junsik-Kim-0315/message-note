@@ -872,9 +872,39 @@
     $('resActions').hidden = !(has || S.segments.length);
     $('btnDrive').disabled = $('btnShare').disabled = !has;
     $('saveInfo').innerHTML = S.saved ? `저장됨: ${esc(S.saved.folder)} · <a href="${esc(S.saved.pdfLink)}" target="_blank">PDF 열기</a> · <a href="${esc(S.saved.sheetLink)}" target="_blank">목록 시트</a>` : '';
+    $('btnPara').disabled = !has;
+    $('paraBox').hidden = !(has && S.final.paragraph);
+    if (has && S.final.paragraph) $('paraText').innerHTML = Markup.mark(S.final.paragraph);
     if (has) await SermonPdf.preview(S.final, $('docPreview'));
     else $('docPreview').innerHTML = '';
   }
+
+  // ---------- 한 문단 정리 (한 장 정리와 별도) ----------
+  let paraBusy = false;
+  async function makeParagraph() {
+    if (!S.final || paraBusy) return;
+    paraBusy = true;
+    $('btnPara').disabled = $('btnParaRedo').disabled = true;
+    $('paraBox').hidden = false; $('paraText').textContent = '한 문단으로 정리하고 있어요. 30초쯤 걸려요.';
+    try {
+      const p = await Gemini.paragraph(cfg, readMeta(), S.final._notes || null, S.final);
+      if (!p) throw new Error('문단을 받지 못했어요. 다시 눌러 주세요.');
+      S.final.paragraph = p; persist(); archive();
+      $('paraText').innerHTML = Markup.mark(p);
+      $('paraBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      $('paraText').textContent = `한 문단 정리 실패: ${e.message}`;
+      if (!S.final.paragraph) setTimeout(() => { if (!S.final?.paragraph) $('paraBox').hidden = true; }, 6000);
+    }
+    paraBusy = false;
+    $('btnPara').disabled = $('btnParaRedo').disabled = false;
+  }
+  $('btnPara').addEventListener('click', () => (S.final?.paragraph ? $('paraBox').scrollIntoView({ behavior: 'smooth' }) : makeParagraph()));
+  $('btnParaRedo').addEventListener('click', makeParagraph);
+  $('btnParaCopy').addEventListener('click', async () => {
+    const t = `${S.final.title || ''} (${S.final.scripture_main || ''})\n${Markup.strip(S.final.paragraph || '')}`;
+    try { await navigator.clipboard.writeText(t); toast('한 문단 정리를 복사했어요.'); } catch (e) { toast('복사하지 못했어요.'); }
+  });
 
   async function getPdf() {
     if (!pdfCache) {

@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261122t">
+<link rel="stylesheet" href="style.css?v=20261122u">
 </head>
 <body>
 <header class="topbar-wrap"><div class="topbar">
@@ -81,6 +81,11 @@
       <button id="btnFinal" class="btn">정리만 다시 하기</button>
       <button id="btnDrive" class="btn primary">구글 드라이브에 저장</button>
       <button id="btnShare" class="btn">PDF 공유·내려받기</button>
+      <button id="btnPara" class="btn">한 문단 정리</button>
+    </div>
+    <div id="paraBox" class="para-box" hidden>
+      <div class="para-h"><b>한 문단 정리</b><span class="para-acts"><button id="btnParaCopy" class="btn small">복사</button><button id="btnParaRedo" class="btn small">다시 쓰기</button></span></div>
+      <p id="paraText" class="para-text"></p>
     </div>
     <div id="saveInfo" class="hint"></div>
     <div id="docPreview" class="doc-preview"></div>
@@ -134,12 +139,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script>window.APP_VERSION = '2026-11-22t';</script>
-<script src="markup.js?v=20261122t"></script>
-<script src="pdf.js?v=20261122t"></script>
-<script src="drive.js?v=20261122t"></script>
-<script src="learn.js?v=20261122t"></script>
-<script src="gemini.js?v=20261122t"></script>
-<script src="app.js?v=20261122t"></script>
+<script>window.APP_VERSION = '2026-11-22u';</script>
+<script src="markup.js?v=20261122u"></script>
+<script src="pdf.js?v=20261122u"></script>
+<script src="drive.js?v=20261122u"></script>
+<script src="learn.js?v=20261122u"></script>
+<script src="gemini.js?v=20261122u"></script>
+<script src="app.js?v=20261122u"></script>
 </body>
 </html>

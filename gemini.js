@@ -315,9 +315,32 @@ ${JSON.stringify({ central_theme: notes.central_theme, theme_notes: notes.theme_
     return out;
   }
 
+  // 한 문단 정리: 이미 만든 설교 노트(없으면 정리본)를 바탕으로 같은 우선순위로 한 문단만 쓴다
+  async function paragraph(cfg, meta, notes, doc) {
+    const theme = (notes && notes.central_theme) || doc?._theme || '';
+    const src = notes ? { big_idea: notes.big_idea, central_theme: notes.central_theme, theme_notes: notes.theme_notes, contrast: notes.contrast, text_keys: notes.text_keys, emphasized: notes.emphasized, christ_side: notes.christ_side, spiritual_warfare: notes.spiritual_warfare, points: notes.points, conclusion: notes.conclusion }
+      : { title: doc.title, one_line: doc.one_line, summary: doc.summary, intro: doc.intro, body: doc.body, conclusion: doc.conclusion };
+    const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래 설교 자료를 '한 문단'으로 정리하세요.
+${infoLine(meta)}
+우선순위:
+1. 제목과 본문의 중심 주제${theme ? `「${theme}」` : ''}가 문단의 주인공입니다. 첫 문장에 넣고 문단 전체가 이 주제를 풉니다.
+2. 말씀은 언제나 그리스도(복음, 창 3:15, 영적인 것, 영적 싸움)와 마귀(사단, 요 8:44, 육신, 뱀)의 대립과 싸움입니다. 이 설교에서 그 대립이 무엇인지 드러내세요.
+3. 본문 핵심 언어와 많이 반복·강조된 말을 살리세요.
+4. 마지막 문장은 결단·적용으로 맺으세요.
+형식: 한 문단, 6~9문장, 400~600자. 줄바꿈·목록·제목 없이 이어지는 문어체 문단. 설교자가 하지 않은 말을 지어내지 마세요.
+${MARK_RULES}
+노란 표시는 쓰지 말고, 초록은 2~3곳, 빨강은 1~2곳, 핵심 용어 표시는 2~4곳만 쓰세요.
+아래 JSON 하나만 출력하세요: {"paragraph": "문단"}
+
+[설교 자료]
+${JSON.stringify(src, null, 1)}`;
+    const r = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 512, timeoutMs: 180000 });
+    return String(r.paragraph || '').trim();
+  }
+
   async function ping(cfg) {
     return call(cfg, cfg.anaModel, [{ text: '“확인”이라고만 답하세요.' }], { temperature: 0, timeoutMs: 30000 });
   }
 
-  window.Gemini = { transcribe, transcribeRange, uploadFile, liveSummary, finalDoc, ping };
+  window.Gemini = { transcribe, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, ping };
 })();
