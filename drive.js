@@ -90,7 +90,9 @@
     const date = doc.date || new Date().toISOString().slice(0, 10);
     const [y, m] = date.split('-');
     const root = (await findOrCreate(ROOT_NAME, 'root', FOLDER)).id;
-    const yf = (await findOrCreate(`${y}년`, root, FOLDER)).id;
+    const svc = safe(doc.service_type) || '기타';
+    const sf = (await findOrCreate(svc, root, FOLDER)).id;
+    const yf = (await findOrCreate(`${y}년`, sf, FOLDER)).id;
     const mf = (await findOrCreate(`${m}월`, yf, FOLDER)).id;
     const base = `${date}_${safe(doc.service_type)}_${safe(doc.title) || '말씀'}`;
     const pdf = await upload(pdfBlob, `${base}.pdf`, 'application/pdf', mf);
@@ -108,7 +110,7 @@
     await api(`${sheetsBase}/A1:J1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [row] }),
     });
-    return { pdfLink: pdf.webViewLink, folder: `${ROOT_NAME}/${y}년/${m}월`, sheetLink: `https://docs.google.com/spreadsheets/d/${sheet.id}` };
+    return { pdfLink: pdf.webViewLink, folder: `${ROOT_NAME}/${svc}/${y}년/${m}월`, sheetLink: `https://docs.google.com/spreadsheets/d/${sheet.id}` };
   }
 
   window.Drive = { connect, save, hasToken };
