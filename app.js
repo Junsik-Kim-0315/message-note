@@ -51,6 +51,7 @@
       service_type: $('serviceType').value,
       preacher: $('preacher').value.trim(),
       title: $('sermonTitle').value.trim(),
+      scripture: $('sermonText').value.trim(),
     };
   }
   function fillMeta() {
@@ -58,8 +59,9 @@
     $('serviceType').value = S.meta.service_type || last.service_type || '주일예배';
     $('preacher').value = S.meta.preacher ?? last.preacher ?? '';
     $('sermonTitle').value = S.meta.title || '';
+    $('sermonText').value = S.meta.scripture || '';
   }
-  ['serviceType', 'preacher', 'sermonTitle'].forEach((id) => $(id).addEventListener('change', () => {
+  ['serviceType', 'preacher', 'sermonTitle', 'sermonText'].forEach((id) => $(id).addEventListener('change', () => {
     persist(); store.set('mn_lastmeta', { service_type: $('serviceType').value, preacher: $('preacher').value.trim() });
   }));
 
@@ -418,8 +420,10 @@
       doc.service_type = meta.service_type;
       if (meta.preacher) doc.preacher = meta.preacher;
       if (meta.title) doc.title = meta.title;
+      if (meta.scripture && !doc.scripture_main) doc.scripture_main = meta.scripture;
       S.final = doc; S.saved = null; pdfCache = null;
       if (!meta.title && doc.title) $('sermonTitle').value = doc.title;
+      if (!meta.scripture && doc.scripture_main) $('sermonText').value = doc.scripture_main;
       persist();
       await renderFinal();
       setStatus('정리 완료');

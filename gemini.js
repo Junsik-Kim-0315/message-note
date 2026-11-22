@@ -67,7 +67,8 @@ ${prevTail ? `직전 구간의 끝부분(문맥 참고용, 다시 쓰지 마세�
 
   async function liveSummary(cfg, meta, transcript) {
     const prompt = `당신은 예배 설교를 듣는 사람을 돕는 정리 도우미입니다. 아래는 지금까지 진행된 설교의 실시간 받아쓰기입니다(음성인식이라 오타가 있을 수 있으니 문맥으로 바로잡아 이해하세요).
-예배: ${meta.service_type || ''} / 설교자: ${meta.preacher || ''}
+예배: ${meta.service_type || ''} / 설교자: ${meta.preacher || ''} / 본문 말씀: ${meta.scripture || '(미입력)'}
+본문 말씀이 주어졌으면 그 본문의 내용과 문맥을 바탕으로 흐름을 이해하세요.
 
 지금까지의 흐름을 JSON으로 정리하세요. 들은 내용에 없는 것은 지어내지 마세요.
 {
@@ -88,7 +89,8 @@ ${transcript}`;
   async function finalDoc(cfg, meta, transcript) {
     const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래는 현장 예배 설교의 음성인식 받아쓰기 전체입니다. 음성인식 오류는 문맥으로 바로잡되, 설교자가 말하지 않은 내용을 덧붙이지 마세요(단, '여러 관점' 항목은 본문의 배경 지식을 보충해도 됩니다).
 
-설교 정보: 날짜 ${meta.date} / 예배 ${meta.service_type || ''} / 설교자 ${meta.preacher || '미상'} / 사용자가 적은 제목 ${meta.title || '(없음, 추정할 것)'}
+설교 정보: 날짜 ${meta.date} / 예배 ${meta.service_type || ''} / 설교자 ${meta.preacher || '미상'} / 사용자가 적은 제목 ${meta.title || '(없음, 추정할 것)'} / 사용자가 적은 본문 말씀 ${meta.scripture || '(없음, 추정할 것)'}
+본문 말씀이 주어졌으면 그것을 주 본문으로 삼고(scripture_main에 '출애굽기 25:1-9'처럼 책 이름을 풀어 쓴 형태로), 그 본문의 내용과 문맥에 비추어 설교를 해석하세요. 받아쓰기의 성경 구절 오인식도 이 본문을 기준으로 바로잡으세요.
 
 설교를 문맥에 따라 서론·본론(대지별)·결론으로 재구성하고 아래 JSON 하나만 출력하세요.
 {
