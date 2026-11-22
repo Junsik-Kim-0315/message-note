@@ -831,6 +831,7 @@
       const meta = readMeta();
       // 이 설교자에 대해 지금까지 학습한 설교 패턴을 불러와 정리에 쓴다
       const profile = await Learn.load(meta.preacher);
+      window.MN_VOCAB = Learn.vocabOf(profile);
       const cleaned = Learn.clean(text); // 시간 표시·겹친 문단 같은 잡음 제거
       const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n) => {
         if (n === 2) flow(2, 'active', '최종 정리 중 (2/2)', '한 장으로 정리하고 색깔 표시를 넣고 있어요');

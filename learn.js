@@ -139,5 +139,7 @@
     return { text: out.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim(), removed };
   }
 
-  window.Learn = { load, merge, save, toText, termsText, toHtml, keyOf, clean };
+  // 정리할 때 반드시 살릴 설교자 핵심 어휘를 넘긴다
+  const vocabOf = (p) => (p?.vocab || []).map((v) => String(v).split(/[(]/)[0].trim());
+  window.Learn = { vocabOf, load, merge, save, toText, termsText, toHtml, keyOf, clean };
 })();
