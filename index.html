@@ -12,12 +12,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261122e">
+<link rel="stylesheet" href="style.css?v=20261122g">
 </head>
 <body>
 <header class="topbar-wrap"><div class="topbar">
   <div class="brand">말씀 정리</div>
   <div class="status" id="status">대기 중</div>
+  <button class="icon-btn" id="btnHistory">지난 기록</button>
   <button class="icon-btn" id="btnSettings">설정</button>
 </div>
   <div class="progress" id="progress" hidden><div class="track"><div class="fill"></div></div><div class="ptext"></div></div>
@@ -45,6 +46,7 @@
     <div class="timer" id="timer">00:00</div>
   </section>
   <ol class="steps" id="steps"></ol>
+  <button id="btnNew" class="btn new-btn" hidden>＋ 새 예배 시작</button>
   <div class="banner" id="banner" hidden><div class="bt" id="bannerTitle"></div><div class="bd" id="bannerDetail"></div></div>
   <p class="hint" id="hint">녹음 중에는 화면을 켜 두는 게 가장 좋아요. 화면이 꺼졌다 켜지면 자동으로 이어서 녹음하고, 빠진 시간은 받아쓰기에 표시돼요.</p>
   <button id="btnFile" class="btn file-btn">음성 메모 파일로 정리하기</button>
@@ -84,6 +86,20 @@
   </section>
 </main>
 
+<dialog id="history">
+  <div class="settings">
+    <h2>지난 기록</h2>
+    <p class="hint">구글 드라이브나 이 휴대폰에 보관된 받아쓰기를 불러와 새로 정리할 수 있어요.</p>
+    <button id="btnDriveList" class="btn primary">구글 드라이브에서 받아쓰기 불러오기</button>
+    <ul class="hist" id="driveList"></ul>
+    <button id="btnImportTxt" class="btn">파일 앱에서 받아쓰기(.txt) 고르기</button>
+    <h3 class="hist-h">이 휴대폰의 기록</h3>
+    <input id="txtInput" type="file" accept=".txt,text/plain" hidden>
+    <p class="hint" id="histEmpty">아직 보관된 기록이 없어요.</p>
+    <ul class="hist" id="histList"></ul>
+    <form method="dialog" class="row end"><button class="btn">닫기</button></form>
+  </div>
+</dialog>
 <dialog id="settings">
   <form method="dialog" class="settings">
     <h2>설정</h2>
@@ -115,10 +131,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="markup.js?v=20261122e"></script>
-<script src="pdf.js?v=20261122e"></script>
-<script src="drive.js?v=20261122e"></script>
-<script src="gemini.js?v=20261122e"></script>
-<script src="app.js?v=20261122e"></script>
+<script src="markup.js?v=20261122g"></script>
+<script src="pdf.js?v=20261122g"></script>
+<script src="drive.js?v=20261122g"></script>
+<script src="gemini.js?v=20261122g"></script>
+<script src="app.js?v=20261122g"></script>
 </body>
 </html>

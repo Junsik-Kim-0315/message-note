@@ -14,8 +14,10 @@
   let cfg = { ...DEFAULT_CFG, ...store.get('mn_cfg', {}) };
 
   // ---------- 세션 상태 ----------
-  const emptySession = () => ({ meta: {}, segments: [], live: null, final: null, elapsed: 0, saved: null });
+  const newId = () => `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const emptySession = () => ({ id: newId(), meta: {}, segments: [], live: null, final: null, elapsed: 0, saved: null });
   let S = store.get('mn_session', null) || emptySession();
+  if (!S.id) S.id = newId();
   S.segments.forEach((s) => { if (s.status === 'pending') s.status = 'failed'; });
   const wavs = new Map(); // 세그먼트 번호 → 오디오(재시도용, 메모리에만)
   let pdfCache = null;
@@ -346,14 +348,149 @@
   }
 
   // 이전 내용이 있으면 새로 시작할지 묻는다. false면 중단
+  // ---------- 지난 기록 (이 휴대폰에 보관) ----------
+  const HIST_KEY = 'mn_history';
+  const hasContent = (x) => x && (x.final || (x.segments || []).some((s) => s.status === 'done' && s.text));
+  function loadHistory() { return store.get(HIST_KEY, []); }
+  function saveHistory(list) {
+    // 휴대폰 저장 공간이 차면 오래된 것부터 지운다
+    for (let n = list.length; n >= 0; n--) {
+      try { localStorage.setItem(HIST_KEY, JSON.stringify(list.slice(0, n))); return; } catch (e) {}
+    }
+  }
+  function archive() {
+    if (!hasContent(S)) return;
+    const meta = readMeta();
+    const entry = {
+      id: S.id, savedAt: Date.now(), meta, elapsed: S.elapsed, saved: S.saved, driveTx: S.driveTx, driveIds: S.driveIds, fileSig: S.fileSig,
+      segments: S.segments.filter((s) => s.text).map(({ i, t, len, status, text }) => ({ i, t, len, status, text })),
+      final: S.final ? { ...S.final, _notes: undefined } : null,
+    };
+    const list = loadHistory().filter((h) => h.id !== S.id);
+    list.unshift(entry);
+    saveHistory(list.slice(0, 60));
+  }
+  function startFresh() {
+    archive();
+    S = emptySession(); S.meta = { date: today() }; wavs.clear(); pdfCache = null; segCounter = 0; liveLen = 0; fileJob = null;
+    $('sermonTitle').value = ''; $('sermonText').value = '';
+    persist(); resetFlow(); renderAll(); showTab('live');
+    $('timer').textContent = '00:00'; $('recLabel').textContent = '녹음 시작';
+  }
+
+  // 이전 내용이 있으면: 정리까지 끝난 것은 기록에 보관하고 새로 시작, 아니면 이어서 할지 묻는다
   function confirmNew() {
     if (!(S.final || S.segments.length)) return true;
-    if (confirm('이전 내용이 있어요. 지우고 새로 시작할까요?\n(취소하면 이어서 진행해요)')) {
-      S = emptySession(); S.meta = { date: today() }; wavs.clear(); pdfCache = null; segCounter = 0; liveLen = 0; resetFlow();
-      renderAll();
-    }
+    if (S.final || confirm('이전 내용이 있어요. 기록에 보관하고 새로 시작할까요?\\n(취소하면 이어서 진행해요)')) startFresh();
     return true;
   }
+
+  $('btnNew').addEventListener('click', () => {
+    if (rec) { toast('녹음을 먼저 끝내주세요.'); return; }
+    if (hasContent(S) && !S.final && !confirm('아직 정리 전이에요. 지금 내용은 지난 기록에 보관하고 새로 시작할까요?')) return;
+    startFresh();
+    toast('새 예배를 시작할 수 있어요. 이전 내용은 지난 기록에 보관했어요.');
+  });
+
+  function renderHistory() {
+    const list = loadHistory();
+    $('histEmpty').hidden = list.length > 0;
+    $('histList').innerHTML = list.map((h) => {
+      const st = h.saved ? '드라이브 저장됨' : h.final ? '정리됨' : '받아쓰기만';
+      const title = h.final?.title || h.meta?.title || '(제목 없음)';
+      const chars = (h.segments || []).reduce((n, s) => n + (s.text || '').length, 0);
+      return `<li class="hist-item${h.id === S.id ? ' current' : ''}">
+        <div class="hm"><b>${esc(h.meta?.date || '')}</b> · ${esc(h.meta?.service_type || '')}${h.id === S.id ? ' · 지금 열린 기록' : ''}</div>
+        <div class="ht">${esc(title)}</div>
+        <div class="hm">${esc(h.final?.scripture_main || h.meta?.scripture || '')} · ${st} · 받아쓰기 ${chars.toLocaleString()}자</div>
+        <div class="row"><button class="btn primary" data-open="${h.id}">불러오기</button><button class="btn" data-del="${h.id}">삭제</button></div>
+      </li>`;
+    }).join('');
+  }
+  $('btnHistory').addEventListener('click', () => { if (rec) { toast('녹음을 먼저 끝내주세요.'); return; } archive(); renderHistory(); $('history').showModal(); });
+  $('histList').addEventListener('click', async (e) => {
+    const openId = e.target.dataset?.open, delId = e.target.dataset?.del;
+    if (delId) {
+      if (!confirm('이 기록을 휴대폰에서 지울까요? (드라이브에 저장한 PDF는 그대로예요)')) return;
+      saveHistory(loadHistory().filter((h) => h.id !== delId));
+      renderHistory();
+      return;
+    }
+    if (!openId) return;
+    const h = loadHistory().find((x) => x.id === openId);
+    if (!h) return;
+    archive();
+    S = { ...emptySession(), ...JSON.parse(JSON.stringify(h)), live: null };
+    wavs.clear(); pdfCache = null; fileJob = null; liveLen = 0;
+    segCounter = S.segments.reduce((m, s) => Math.max(m, s.i + 1), 0);
+    $('sermonTitle').value = S.meta.title || ''; $('sermonText').value = S.meta.scripture || '';
+    persist();
+    $('history').close();
+    await renderAll();
+    resetFlow();
+    if (S.saved) flow(3, 'done', '지난 기록을 불러왔어요', "드라이브에 저장된 기록이에요. '정리만 다시 하기'로 새로 정리할 수 있어요");
+    else if (S.final) flow(2, 'done', '지난 기록을 불러왔어요', "'정리만 다시 하기'로 새로 정리할 수 있어요");
+    else flow(1, 'done', '지난 기록을 불러왔어요', "'정리만 다시 하기'로 정리를 만들 수 있어요");
+    showTab('result');
+    $('resActions').hidden = false;
+  });
+
+  // 드라이브에서 받아쓰기 목록을 불러와 고르기
+  $('btnDriveList').addEventListener('click', async () => {
+    try {
+      await Drive.connect(); // 탭 직후 바로 호출해야 로그인 창이 열림
+      $('driveList').innerHTML = '<li class="hint">드라이브에서 찾는 중…</li>';
+      const files = await Drive.listTranscripts();
+      $('driveList').innerHTML = files.length ? files.map((f) => {
+        const p = f.appProperties || {};
+        const label = p.mn ? `${p.mn_date} · ${p.mn_service}` : f.name.replace(/_받아쓰기\.txt$/, '');
+        return `<li class="hist-item"><div class="hm"><b>${esc(label)}</b></div><div class="ht">${esc(p.mn_title || '')}</div>
+          <div class="hm">${esc(p.mn_scripture || '')}${p.mn_preacher ? ' · ' + esc(p.mn_preacher) : ''}</div>
+          <div class="row"><button class="btn primary" data-drive="${esc(f.id)}" data-name="${esc(f.name)}">불러와서 정리</button></div></li>`;
+      }).join('') : '<li class="hint">드라이브에 저장된 받아쓰기가 아직 없어요.</li>';
+      $('driveList')._files = files;
+    } catch (e) { $('driveList').innerHTML = `<li class="hint">${esc(e.message)}</li>`; }
+  });
+  $('driveList').addEventListener('click', async (e) => {
+    const id = e.target.dataset?.drive;
+    if (!id) return;
+    const f = ($('driveList')._files || []).find((x) => x.id === id) || { name: e.target.dataset.name };
+    try {
+      e.target.disabled = true; e.target.textContent = '불러오는 중…';
+      const text = (await Drive.readText(id)).trim();
+      const p = f.appProperties || {};
+      await loadTranscript(text, f.name, p.mn ? { date: p.mn_date, service_type: p.mn_service, preacher: p.mn_preacher, title: p.mn_title, scripture: p.mn_scripture } : null, { txtId: id });
+    } catch (err) { toast(err.message, 4000); e.target.disabled = false; e.target.textContent = '불러와서 정리'; }
+  });
+
+  // 받아쓰기 글을 새 기록으로 열고 정리를 돌린다
+  async function loadTranscript(text, fileName, meta, driveTx) {
+    if (text.length < 50) { toast('받아쓰기 내용이 너무 적어요.'); return; }
+    archive();
+    S = emptySession();
+    // 파일 이름 예: 2026-11-22_주일 1부예배_제목_받아쓰기.txt
+    const m = (fileName || '').replace(/\.txt$/i, '').replace(/_받아쓰기$/, '').split('_');
+    S.meta = meta || { date: /^\d{4}-\d{2}-\d{2}$/.test(m[0]) ? m[0] : today(), service_type: m[1] || '', title: m.slice(2).join('_') };
+    if (!S.meta.date) S.meta.date = today();
+    S.segments = [{ i: 0, t: 0, status: 'done', text }];
+    if (driveTx) S.driveTx = driveTx;
+    segCounter = 1; wavs.clear(); pdfCache = null; fileJob = null; liveLen = 0;
+    fillMeta(); $('sermonTitle').value = S.meta.title || ''; $('sermonText').value = S.meta.scripture || '';
+    if (S.meta.preacher) $('preacher').value = S.meta.preacher;
+    persist();
+    $('history').close();
+    await renderAll();
+    resetFlow();
+    await makeFinal();
+  }
+
+  // 드라이브에 저장된 받아쓰기(.txt)를 불러와 새로 정리
+  $('btnImportTxt').addEventListener('click', () => $('txtInput').click());
+  $('txtInput').addEventListener('change', async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (f) await loadTranscript((await f.text()).trim(), f.name, null, null);
+  });
+
 
   async function stopRec() {
     if (!rec) return;
@@ -654,6 +791,20 @@
       ${(L.terms || []).length ? `<div class="live-block"><h3>핵심 용어</h3>${(L.terms || []).map((t) => `<span class="m-t">${esc(t)}</span>`).join(' · ')}</div>` : ''}`;
   }
 
+
+  // 받아쓰기가 끝나면(드라이브가 연결돼 있으면) 받아쓰기 전체를 드라이브에 먼저 따로 저장해 둔다
+  async function autoSaveTranscript() {
+    if (!Drive.hasToken()) return;
+    const text = transcriptText();
+    if (text.length < 50) return;
+    try {
+      const r = await Drive.saveTranscript({ transcript: text, meta: readMeta(), prev: { ...(S.driveIds || {}), ...(S.saved || {}), ...(S.driveTx || {}) } });
+      S.driveTx = { txtId: r.txtId };
+      persist();
+      toast(`받아쓰기를 드라이브 ${r.folder}에 저장했어요.`);
+    } catch (e) { /* 저장 버튼을 누를 때 다시 시도됨 */ }
+  }
+
   // ---------- 최종 정리 ----------
   let finalBusy = false;
   async function makeFinal() {
@@ -662,6 +813,7 @@
     if (text.length < 50) { flow(1, 'error', '받아쓴 내용이 너무 적어요', '녹음이 제대로 됐는지 받아쓰기 탭에서 확인해 주세요'); toast('받아쓴 내용이 너무 적어서 정리할 수 없어요.'); return; }
     if (finalBusy) return;
     finalBusy = true;
+    autoSaveTranscript();
     showTab('result');
     flow(1, 'done'); flow(2, 'active', '최종 정리 중 (1/2)', '설교 부분을 찾아 처음부터 끝까지 흐름을 파악하고 있어요');
     $('resEmpty').hidden = false; $('resEmpty').textContent = '설교 전체를 다시 읽고 정리하고 있어요. 2~3분 걸려요.';
@@ -675,12 +827,15 @@
       if (meta.preacher) doc.preacher = meta.preacher;
       if (meta.title) doc.title = meta.title;
       if (meta.scripture && !doc.scripture_main) doc.scripture_main = meta.scripture;
+      // 다시 정리해도 드라이브의 같은 파일을 갱신하도록 파일 id는 남겨 둔다
+      if (S.saved) S.driveIds = { pdfId: S.saved.pdfId, txtId: S.saved.txtId };
       S.final = doc; S.saved = null; pdfCache = null;
       if (!meta.title && doc.title) $('sermonTitle').value = doc.title;
       if (!meta.scripture && doc.scripture_main) $('sermonText').value = doc.scripture_main;
       persist();
       await renderFinal();
       flow(2, 'done', '정리 완료', '아래에서 확인하고 드라이브에 저장하세요');
+      archive();
     } catch (e) {
       $('resEmpty').textContent = `정리하지 못했어요: ${e.message}`;
       $('resActions').hidden = false;
@@ -719,8 +874,8 @@
       await Drive.connect(); // 탭 직후 바로 호출해야 로그인 창이 열림
       const pdfBlob = await getPdf();
       flow(3, 'active', '드라이브에 저장 중');
-      S.saved = await Drive.save({ pdfBlob, transcript: ($('trEditWrap').hidden ? '' : $('trEdit').value.trim()) || transcriptText(), doc: S.final });
-      persist(); await renderFinal();
+      S.saved = await Drive.save({ pdfBlob, transcript: ($('trEditWrap').hidden ? '' : $('trEdit').value.trim()) || transcriptText(), doc: S.final, prev: { ...(S.driveTx || {}), ...(S.driveIds || {}), ...(S.saved || {}) } });
+      persist(); archive(); await renderFinal();
       flow(3, 'done', '모두 완료', `드라이브 ${S.saved.folder}에 저장했어요`);
       toast(`${S.saved.folder} 폴더에 저장했어요.`);
     } catch (e) { flow(3, 'error', '드라이브 저장 실패', e.message); toast(e.message, 4000); }
@@ -742,7 +897,7 @@
   function openSettings() {
     $('cfgKey').value = cfg.key; $('cfgSttModel').value = cfg.sttModel; $('cfgAnaModel').value = cfg.anaModel; $('cfgLiveMin').value = cfg.liveMin; $('cfgRpm').value = cfg.rpm;
     $('googleState').textContent = Drive.hasToken() ? '연결됨' : '';
-    $('appVersion').textContent = '앱 버전 2026-11-22e';
+    $('appVersion').textContent = '앱 버전 2026-11-22g';
     $('testState').textContent = '';
     $('settings').showModal();
   }
@@ -774,7 +929,8 @@
     const hasText = S.segments.some((s) => s.status === 'done');
     $('trEditWrap').hidden = !hasText;
     if (hasText) $('trEdit').value = transcriptText();
-    if (S.segments.length) $('recLabel').textContent = '이어서 녹음';
+    $('recLabel').textContent = S.segments.length ? '이어서 녹음' : '녹음 시작';
+    $('btnNew').hidden = !hasContent(S);
     await renderFinal();
   }
 
