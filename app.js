@@ -49,7 +49,7 @@
   }
   function readMeta() {
     return {
-      date: S.meta?.date || today(),
+      date: $('sermonDate').value || S.meta?.date || today(),
       service_type: $('serviceType').value,
       preacher: $('preacher').value.trim(),
       title: $('sermonTitle').value.trim(),
@@ -62,10 +62,11 @@
     const st = S.meta.service_type || last.service_type;
     $('serviceType').value = opts.includes(st) ? st : opts[0];
     $('preacher').value = S.meta.preacher ?? last.preacher ?? '';
+    $('sermonDate').value = S.meta.date || today();
     $('sermonTitle').value = S.meta.title || '';
     $('sermonText').value = S.meta.scripture || '';
   }
-  ['serviceType', 'preacher', 'sermonTitle', 'sermonText'].forEach((id) => $(id).addEventListener('change', () => {
+  ['sermonDate', 'serviceType', 'preacher', 'sermonTitle', 'sermonText'].forEach((id) => $(id).addEventListener('change', () => {
     persist(); store.set('mn_lastmeta', { service_type: $('serviceType').value, preacher: $('preacher').value.trim() });
   }));
 
@@ -112,6 +113,12 @@
   setInterval(() => { if (S.segments.some((s) => s.waitUntil)) { renderSegments(); } }, 1000);
 
   function resetFlow() { steps = ['idle', 'idle', 'idle', 'idle']; $('steps').innerHTML = ''; $('banner').hidden = true; flow(0, 'idle'); }
+
+  $('sermonDate').addEventListener('change', () => {
+    if (!$('sermonDate').value) $('sermonDate').value = today();
+    S.meta.date = $('sermonDate').value;
+    if (S.final) { S.final.date = S.meta.date; pdfCache = null; persist(); renderFinal(); }
+  });
 
   // ---------- 받아쓰기 목록 ----------
   const transcriptText = () => S.segments.filter((s) => (s.status === 'done' || s.status === 'gap') && s.text).map((s) => s.text).join('\n');
@@ -373,7 +380,7 @@
   function startFresh() {
     archive();
     S = emptySession(); S.meta = { date: today() }; wavs.clear(); pdfCache = null; segCounter = 0; liveLen = 0; fileJob = null;
-    $('sermonTitle').value = ''; $('sermonText').value = '';
+    $('sermonTitle').value = ''; $('sermonText').value = ''; $('sermonDate').value = today();
     persist(); resetFlow(); renderAll(); showTab('live');
     $('timer').textContent = '00:00'; $('recLabel').textContent = '녹음 시작';
   }
@@ -623,10 +630,6 @@
     if (!resume) {
       confirmNew();
       S.fileSig = sig;
-      if (!S.meta.date) {
-        const d = new Date(file.lastModified || Date.now());
-        S.meta.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      }
     }
     showTab('transcript');
     lockScreen();
