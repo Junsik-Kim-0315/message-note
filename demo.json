@@ -1,5 +1,5 @@
 {
-  "meta": { "date": "2026-11-22", "service_type": "주일예배", "preacher": "샘플 설교자", "title": "" },
+  "meta": { "date": "2026-11-22", "service_type": "주일 1부예배", "preacher": "샘플 설교자", "title": "" },
   "elapsed": 2280,
   "segments": [
     { "i": 0, "t": 0, "status": "done", "text": "(샘플) 오늘 함께 읽을 말씀은 에베소서 6장 10절부터 18절 말씀입니다." },
@@ -19,7 +19,7 @@
   },
   "final": {
     "date": "2026-11-22",
-    "service_type": "주일예배",
+    "service_type": "주일 1부예배",
     "preacher": "샘플 설교자",
     "title": "주 안에서 강건하라",
     "scripture_main": "에베소서 6:10-18",

@@ -56,7 +56,9 @@
   }
   function fillMeta() {
     const last = store.get('mn_lastmeta', {});
-    $('serviceType').value = S.meta.service_type || last.service_type || '주일예배';
+    const opts = [...$('serviceType').options].map((o) => o.value);
+    const st = S.meta.service_type || last.service_type;
+    $('serviceType').value = opts.includes(st) ? st : opts[0];
     $('preacher').value = S.meta.preacher ?? last.preacher ?? '';
     $('sermonTitle').value = S.meta.title || '';
     $('sermonText').value = S.meta.scripture || '';
