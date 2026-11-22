@@ -442,6 +442,13 @@
     $('resActions').hidden = false;
   });
 
+  $('btnLearn').addEventListener('click', async () => {
+    $('learnView').hidden = false;
+    $('learnView').innerHTML = '<p class="hint">불러오는 중…</p>';
+    const p = await Learn.load(readMeta().preacher);
+    $('learnView').innerHTML = Learn.toHtml(p, esc);
+  });
+
   // 드라이브에서 받아쓰기 목록을 불러와 고르기
   $('btnDriveList').addEventListener('click', async () => {
     try {
@@ -822,9 +829,17 @@
     $('resEmpty').hidden = false; $('resEmpty').textContent = '설교 전체를 다시 읽고 정리하고 있어요. 2~3분 걸려요.';
     try {
       const meta = readMeta();
-      const doc = await Gemini.finalDoc(cfg, meta, text, (n) => {
+      // 이 설교자에 대해 지금까지 학습한 설교 패턴을 불러와 정리에 쓴다
+      const profile = await Learn.load(meta.preacher);
+      const cleaned = Learn.clean(text); // 시간 표시·겹친 문단 같은 잡음 제거
+      const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n) => {
         if (n === 2) flow(2, 'active', '최종 정리 중 (2/2)', '한 장으로 정리하고 색깔 표시를 넣고 있어요');
-      });
+      }, Learn.toText(profile));
+      // 이번 설교의 구조·용어 교정을 쌓아 다음 정리에 반영
+      const learned = Learn.merge(profile, doc._notes, { ...meta, title: meta.title || doc.title }, S.id);
+      const onDrive = await Learn.save(learned);
+      window.MN_TERMS = Learn.termsText(learned);
+      S.learnNote = `설교 패턴 학습: ${learned.preacher} ${learned.sermons}편 누적${onDrive ? ' (드라이브에도 저장)' : ''}`;
       doc.date = meta.date;
       doc.service_type = meta.service_type;
       if (meta.preacher) doc.preacher = meta.preacher;
@@ -838,7 +853,7 @@
       if (!meta.scripture && doc.scripture_main) $('sermonText').value = doc.scripture_main;
       persist();
       await renderFinal();
-      flow(2, 'done', '정리 완료', '아래에서 확인하고 드라이브에 저장하세요');
+      flow(2, 'done', '정리 완료', `아래에서 확인하고 드라이브에 저장하세요 · ${S.learnNote}`);
       archive();
     } catch (e) {
       $('resEmpty').textContent = `정리하지 못했어요: ${e.message}`;
@@ -940,6 +955,7 @@
   $('appFoot').textContent = `말씀 정리 · 앱 버전 ${window.APP_VERSION || ''}`;
 
   async function boot() {
+    Learn.load(readMeta().preacher).then((p) => { window.MN_TERMS = Learn.termsText(p); }).catch(() => {});
     if (new URLSearchParams(location.search).has('demo')) {
       try {
         const demo = await (await fetch('demo.json')).json();

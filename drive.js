@@ -152,5 +152,30 @@
     return (await res.text()).replace(/^# 말씀 정리 앱 버전[^\n]*\n+/, '');
   }
 
-  window.Drive = { connect, save, saveTranscript, listTranscripts, readText, hasToken };
+  // 학습 자료 같은 JSON 파일: 말씀 정리/설교 분석/ 폴더에 이름으로 찾아 읽고 쓴다
+  async function analysisFolder() {
+    const root = (await findOrCreate(ROOT_NAME, 'root', FOLDER)).id;
+    return (await findOrCreate('설교 분석', root, FOLDER)).id;
+  }
+  async function findFile(name, parent) {
+    const query = `name='${q(name)}' and '${parent}' in parents and trashed=false`;
+    const r = await api(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)&spaces=drive`);
+    return r.files?.[0]?.id || null;
+  }
+  async function loadJson(name) {
+    if (!hasToken()) return null;
+    const id = await findFile(name, await analysisFolder());
+    if (!id) return null;
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+    return res.ok ? res.json().catch(() => null) : null;
+  }
+  async function saveJson(name, obj) {
+    if (!hasToken()) return false;
+    const parent = await analysisFolder();
+    const id = await findFile(name, parent);
+    await upload(new Blob([JSON.stringify(obj, null, 1)], { type: 'application/json' }), name, 'application/json', parent, { id });
+    return true;
+  }
+
+  window.Drive = { connect, save, saveTranscript, listTranscripts, readText, loadJson, saveJson, hasToken };
 })();

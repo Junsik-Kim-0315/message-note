@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261122j">
+<link rel="stylesheet" href="style.css?v=20261122k">
 </head>
 <body>
 <header class="topbar-wrap"><div class="topbar">
@@ -95,6 +95,8 @@
     <button id="btnDriveList" class="btn primary">구글 드라이브에서 받아쓰기 불러오기</button>
     <ul class="hist" id="driveList"></ul>
     <button id="btnImportTxt" class="btn">파일 앱에서 받아쓰기(.txt) 고르기</button>
+    <button id="btnLearn" class="btn">학습된 설교 패턴 보기 (지금 설교자)</button>
+    <div id="learnView" class="learn-view" hidden></div>
     <h3 class="hist-h">이 휴대폰의 기록</h3>
     <input id="txtInput" type="file" accept=".txt,text/plain" hidden>
     <p class="hint" id="histEmpty">아직 보관된 기록이 없어요.</p>
@@ -132,11 +134,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script>window.APP_VERSION = '2026-11-22j';</script>
-<script src="markup.js?v=20261122j"></script>
-<script src="pdf.js?v=20261122j"></script>
-<script src="drive.js?v=20261122j"></script>
-<script src="gemini.js?v=20261122j"></script>
-<script src="app.js?v=20261122j"></script>
+<script>window.APP_VERSION = '2026-11-22k';</script>
+<script src="markup.js?v=20261122k"></script>
+<script src="pdf.js?v=20261122k"></script>
+<script src="drive.js?v=20261122k"></script>
+<script src="learn.js?v=20261122k"></script>
+<script src="gemini.js?v=20261122k"></script>
+<script src="app.js?v=20261122k"></script>
 </body>
 </html>

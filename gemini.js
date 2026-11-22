@@ -74,7 +74,7 @@
 - 잘 들리지 않는 부분은 지어내지 말고 생략하세요.
 - 찬양·연주는 (찬양), 다 같이 하는 기도·신앙고백·광고는 (기도), (광고)처럼 한 줄로만 표시하고, 말소리가 없으면 아무것도 출력하지 마세요.
 - 화자 이름, 시간, 설명 없이 받아쓴 문장만 출력하세요.
-${prevTail ? `직전 구간의 끝부분(문맥 참고용, 다시 쓰지 마세요): "${prevTail}"` : ''}`;
+${window.MN_TERMS ? `- 이전에 자주 잘못 받아쓴 말(잘못→바름): ${window.MN_TERMS}\n` : ''}${prevTail ? `직전 구간의 끝부분(문맥 참고용, 다시 쓰지 마세요): "${prevTail}"` : ''}`;
     const data = await blobToBase64(blob);
     return call(cfg, cfg.sttModel, [{ text: prompt }, { inline_data: { mime_type: mime, data } }],
       { temperature: 0, thinking: 0, timeoutMs: approxSec >= 60 ? 240000 : 90000 });
@@ -122,7 +122,7 @@ ${prevTail ? `직전 구간의 끝부분(문맥 참고용, 다시 쓰지 마세�
 - 성경 책 이름, 장·절, 교회 용어(은혜, 성령, 언약 등)는 바른 표기로 쓰세요.
 - 잘 들리지 않는 부분은 지어내지 말고 생략하세요.
 - 찬양·연주는 (찬양), 다 같이 하는 기도·신앙고백·광고는 (기도), (광고)처럼 한 줄로만 표시하세요.
-- 화자 이름, 시간, 설명 없이 받아쓴 문장만 출력하세요.`;
+- 화자 이름, 시간, 설명 없이 받아쓴 문장만 출력하세요.${window.MN_TERMS ? `\n- 이전에 자주 잘못 받아쓴 말(잘못→바름): ${window.MN_TERMS}` : ''}`;
     return call(cfg, cfg.sttModel, [{ file_data: { mime_type: ref.mime, file_uri: ref.uri } }, { text: prompt }], { temperature: 0, thinking: 0, timeoutMs: 300000 });
   }
 
@@ -153,7 +153,7 @@ ${transcript}`;
   // (한 번에 하면 긴 받아쓰기에서 마지막 부분만 붙잡아 정리하는 문제가 있었다)
   const infoLine = (meta) => `설교 정보: 날짜 ${meta.date} / 예배 ${meta.service_type || ''} / 설교자 ${meta.preacher || '미상'} / 사용자가 적은 제목 ${meta.title || '(없음, 추정할 것)'} / 사용자가 적은 본문 말씀 ${meta.scripture || '(없음, 추정할 것)'}`;
 
-  async function sermonNotes(cfg, meta, transcript) {
+  async function sermonNotes(cfg, meta, transcript, profileText) {
     const prompt = `당신은 한국 교회 설교를 꼼꼼히 듣고 노트하는 조교입니다. 아래는 현장 예배 전체의 음성인식 받아쓰기입니다(오타가 있으니 문맥으로 바로잡아 이해하세요).
 ${infoLine(meta)}
 
@@ -161,7 +161,14 @@ ${infoLine(meta)}
 1. 찬양, 대표기도, 광고, 헌금, 축도 등을 빼고 '설교'가 시작되는 곳과 끝나는 곳을 찾으세요. 설교 전 성경 봉독이 있으면 본문 파악에 쓰세요.
 2. 설교의 처음부터 끝까지 흐름을 시간 순서대로 빠짐없이 노트하세요. 마지막 부분만이 아니라 앞·중간 부분의 주장과 설명을 반드시 고르게 담으세요. 설교의 대부분은 본론입니다.
 3. 설교자가 실제로 한 말을 근거로 하고, 핵심 문장은 받아쓰기에서 그대로(오타만 고쳐) 인용하세요.
-
+4. 받아쓰기에 같은 내용이 두 번 들어간 구간(겹쳐 올린 부분)은 한 번만 쓰세요. 시간 표시(00:00 등)나 출처 표시 줄은 무시하세요.
+5. 설교 끝의 마무리 기도가 설교 요지를 정리하는 경우가 많으니 대지와 결론을 정할 때 참고하세요. 설교 중간의 교회 운영·광고 이야기는 비중을 낮추세요.
+6. '~할지어다', '떠나가라' 같은 선포 기도와 마귀·사단·저주를 대적하는 말은 spiritual_warfare에 꼭 담으세요.
+7. 이 설교의 구조적 특징(설교 시작·끝을 알리는 말, 대지를 나누는 표현, 예화·적용·마무리 방식)과 음성인식이 잘못 받아쓴 말(사람 이름, 성경 이름, 교회 용어)을 함께 분석하세요. 다음 설교를 더 잘 정리하기 위한 학습 자료로 쌓입니다.
+${profileText ? `
+[지금까지 학습한 이 설교자의 설교 패턴 — 설교 구간 찾기와 대지 나누기에 참고하되, 이번 설교 내용이 우선입니다]
+${profileText}
+` : ''}
 아래 JSON 하나만 출력하세요.
 {
  "sermon_found": true,
@@ -173,7 +180,19 @@ ${infoLine(meta)}
  "conclusion": ["결론·결단 촉구의 요지들"],
  "application": ["설교자가 제시한 적용"],
  "spiritual_warfare": ["마귀·사단·악한 영·유혹 관련 발언 (없으면 빈 배열)"],
- "scriptures": ["설교 중 인용된 모든 구절"]
+ "scriptures": ["설교 중 인용된 모든 구절"],
+ "style": {
+   "start_cue": "설교가 시작될 때의 말이나 신호 (예: 본문 봉독 후 '오늘 말씀은…')",
+   "end_cue": "설교가 끝날 때의 말이나 신호 (예: '기도하겠습니다')",
+   "intro": "도입 방식 한 줄 (예: 지난주 설교 복습 → 질문 던지기)",
+   "point_markers": ["대지를 나눌 때 쓰는 표현 그대로"],
+   "transitions": ["자주 쓰는 연결·강조 표현"],
+   "illustrations": "예화·간증을 쓰는 방식 한 줄",
+   "application": "적용·결단을 촉구하는 방식 한 줄",
+   "closing": "마무리 방식 한 줄",
+   "structure": "이 설교의 전체 구조 한 줄 (예: 서론-본문 해설 3대지-예화-결단 기도)"
+ },
+ "term_fixes": [{"wrong": "받아쓰기에 잘못 나온 말", "right": "바른 말"}]
 }
 대지는 설교자가 '첫째, 둘째'처럼 나눴으면 그대로, 아니면 내용 흐름에 따라 2~5개로 나누세요.
 
@@ -182,9 +201,9 @@ ${transcript}`;
     return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 2048, timeoutMs: 300000 });
   }
 
-  async function finalDoc(cfg, meta, transcript, onStep) {
+  async function finalDoc(cfg, meta, transcript, onStep, profileText) {
     onStep?.(1);
-    const notes = await sermonNotes(cfg, meta, transcript);
+    const notes = await sermonNotes(cfg, meta, transcript, profileText);
     onStep?.(2);
     const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래는 한 편의 설교를 처음부터 끝까지 노트한 자료입니다. 이것을 A4 한 장짜리 정리본으로 만드세요.
 ${infoLine(meta)}
@@ -213,7 +232,9 @@ ${infoLine(meta)}
 }
 분량(전체 1,300~1,500자): summary 3줄 / intro 2~3문장 / body 대지 2~4개, 대지마다 1문단 3~4문장 / conclusion 2문장 / key_terms 최대 3개.
 문장은 설교자의 말투를 살리되 간결한 문어체로 쓰세요.
-${MARK_RULES}
+${profileText ? `[이 설교자의 평소 설교 구조 — 대지 구분과 비중을 정할 때 참고]
+${profileText}
+` : ''}${MARK_RULES}
 
 [설교 노트]
 ${JSON.stringify(notes, null, 1)}`;
