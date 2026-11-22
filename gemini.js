@@ -11,6 +11,9 @@
 표시는 겹치지 않게, 강조할 부분만 짧게 감싼다.`;
 
   // thinking: 생각 단계 예산(0이면 끔). 받아쓰기는 생각이 필요 없고 느려지기만 해서 끈다.
+  // 긴 설교(90분 이상)일수록 응답이 오래 걸리니 받아쓰기 길이에 맞춰 기다리는 시간을 늘린다
+  const longWait = (base, text, perK, cap) => Math.min(cap, base + Math.round(String(text || '').length / 1000) * perK);
+
   async function call(cfg, model, parts, { json = false, temperature = 0.3, timeoutMs = 120000, thinking = null } = {}) {
     if (!cfg.key) throw new Error('설정에서 Gemini API 키를 넣어주세요.');
     const send = async (withThinking) => {
@@ -148,7 +151,7 @@ ${MARK_RULES}
 
 [받아쓰기]
 ${transcript}`;
-    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 0, timeoutMs: 90000 });
+    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 0, timeoutMs: longWait(90000, transcript, 1500, 200000) });
   }
 
   // 최종 정리는 두 단계로 한다.
@@ -211,7 +214,7 @@ ${profileText}
 
 [받아쓰기 전체]
 ${transcript}`;
-    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 2048, timeoutMs: 300000 });
+    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 2048, timeoutMs: longWait(300000, transcript, 4000, 600000) });
   }
 
   // 중심 주제가 제목·한 줄·요약·대지 제목에 충분히 나오는지 본다. 약하면 이유를 돌려준다.

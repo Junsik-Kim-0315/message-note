@@ -8,7 +8,19 @@
   const DEFAULT_CFG = { key: '', sttModel: 'gemini-2.5-flash', anaModel: 'gemini-2.5-flash', liveMin: 3, rpm: 8 };
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
-    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+    set(k, v) {
+      const s = JSON.stringify(v);
+      // 휴대폰 저장 공간이 차면(긴 설교가 여러 편 쌓였을 때) 오래된 기록부터 덜어 내고 다시 저장한다
+      for (let i = 0; i < 8; i++) {
+        try { localStorage.setItem(k, s); return true; } catch (e) {
+          let h; try { h = JSON.parse(localStorage.getItem('mn_history') || '[]'); } catch (x) { h = []; }
+          if (k === 'mn_history' || !h.length) break;
+          try { localStorage.setItem('mn_history', JSON.stringify(h.slice(0, Math.floor(h.length * 0.7)))); } catch (x) { localStorage.removeItem('mn_history'); }
+        }
+      }
+      if (!store.warned) { store.warned = true; setTimeout(() => toast?.('휴대폰 저장 공간이 부족해요. 드라이브에 저장해 두면 안전해요.', 4000), 0); }
+      return false;
+    },
     del(k) { try { localStorage.removeItem(k); } catch (e) {} },
   };
   let cfg = { ...DEFAULT_CFG, ...store.get('mn_cfg', {}) };
@@ -826,7 +838,7 @@
     autoSaveTranscript();
     showTab('result');
     flow(1, 'done'); flow(2, 'active', '최종 정리 중 (1/2)', '설교 부분을 찾아 처음부터 끝까지 흐름을 파악하고 있어요');
-    $('resEmpty').hidden = false; $('resEmpty').textContent = '설교 전체를 다시 읽고 정리하고 있어요. 2~3분 걸려요.';
+    $('resEmpty').hidden = false; $('resEmpty').textContent = '설교 전체를 다시 읽고 정리하고 있어요. 보통 2~3분, 90분이 넘는 설교는 5~10분 걸려요.';
     try {
       const meta = readMeta();
       // 이 설교자에 대해 지금까지 학습한 설교 패턴을 불러와 정리에 쓴다
