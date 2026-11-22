@@ -173,6 +173,7 @@ ${infoLine(meta)}
 6-1. 그리스도 쪽도 똑같이 빠짐없이: 그리스도(예수는 그리스도, 여자의 후손), 복음, 영적 싸움, 재창조(죽을 몸도 살리심)에 대한 설교자의 핵심 문장을 christ_side에 원문 그대로 담으세요. 마귀 쪽만 많고 그리스도 쪽이 빠지면 잘못된 노트입니다.
 6-2. 이번 본문과 관련된 핵심 언어를 text_keys에 뽑으세요. 본문 말씀에서 나왔거나 설교자가 본문을 풀며 거듭 쓴 말입니다(예: 출 25:1-9 설교라면 성막, 예물, 헌신, 유턴, 정체성). 설교마다 다르며, 정리본에 하나도 빠지지 않고 들어갑니다. 중요도는 (1) 반복 횟수(여러 번 되풀이할수록 중요)와 (2) 문맥상 강조(‘진짜’, ‘꼭’, ‘반드시’, ‘제발’, ‘이 비밀을 알아야 돼요’, 같은 말을 연달아 반복하거나 선포함, 질문하고 스스로 답함, ‘아멘’을 받아냄)로 판단해 weight(1~3)로 매기고 중요한 순서로 쓰세요. 설교자가 힘줘 말한 핵심 문장은 emphasized에 원문 그대로 담으세요.
 6. 마귀·사단·사탄·뱀·귀신·흑암·저주·참소에 관한 말과 구절(요 8:44, 요일 3:8, 창 3:15 등), '깨뜨려라·내어쫓아라·박살 내라·결박하라·떠나가라·~할지어다' 같은 대적·선포 기도는 하나도 빠뜨리지 말고 spiritual_warfare에 원문 그대로(오타만 고쳐) 담으세요. 이 설교자에게는 매우 중요한 주제입니다.
+6-3. 설교자가 '오늘 메시지의 핵심입니다', '세 가지 비밀', '첫째·둘째'처럼 직접 핵심이나 요점을 밝힌 곳을 반드시 찾아 stated_core, stated_points에 원문 그대로 담으세요(끝부분이나 마무리 기도 직전에 나오는 경우가 많습니다).
 7. 설교는 언제나 그리스도와 마귀의 대립과 싸움입니다. 그리스도 쪽(복음, 창 3:15 여자의 후손, 영적인 것, 영적 싸움)과 마귀 쪽(사단, 요 8:44, 육신, 뱀)이 이번 설교에서 각각 무엇으로 나타나는지 찾아 contrast에 담으세요. 예(출 25:1-9): 내 몸에 하나님의 성막을 지으라(그리스도) ↔ 짓지 못하게 완악하고 딱딱하게, 육신적으로만 살게 만드는 마귀의 역사를 깨뜨리라(마귀). 각 대지가 이 싸움의 어느 쪽을 말하는지도 보세요.
 8. 이 설교의 구조적 특징(설교 시작·끝을 알리는 말, 대지를 나누는 표현, 예화·적용·마무리 방식)과 음성인식이 잘못 받아쓴 말(사람 이름, 성경 이름, 교회 용어)을 함께 분석하세요. 다음 설교를 더 잘 정리하기 위한 학습 자료로 쌓입니다.
 ${profileText ? `
@@ -185,7 +186,9 @@ ${profileText}
  "scripture_main": "주 본문",
  "title_guess": "설교 제목 추정",
  "big_idea": "설교 전체를 꿰는 중심 메시지 한두 문장",
- "central_theme": "제목과 본문의 중심 주제어 하나 (예: 성막)",
+ "central_theme": "제목과 본문의 중심 주제어 하나, 1~3단어의 짧은 말 (예: 성막, 잃어버린 드라크마)",
+ "stated_core": "설교자가 '오늘 메시지의 핵심', '오늘 본문은' 처럼 직접 밝힌 핵심 문장 원문 (없으면 빈 문자열)",
+ "stated_points": ["설교자가 '세 가지 비밀', '첫째·둘째'처럼 직접 밝힌 요점들 (없으면 빈 배열)"],
  "theme_notes": ["중심 주제에 대해 설교자가 한 설명·의미·적용을 빠짐없이(본문 해설 포함)"],
  "contrast": {"build": "그리스도 쪽: 이번 설교에서 붙잡고 세울 것(복음·창 3:15·영적인 것)", "break": "마귀 쪽: 그것을 막는 것, 깨뜨릴 것(사단·요 8:44·육신·뱀)", "how": "영적 싸움으로 어떻게 깨뜨리고 세우는가"},
  "intro": ["서론에서 한 말의 요지들"],
@@ -240,12 +243,13 @@ ${transcript}`;
 
     // 1. 중심 주제
     if (theme) {
-      const t = head(theme);
+      // '잃어버린 드라크마'처럼 여러 낱말이면 마지막 명사(드라크마)로 본다
+      const t = head(String(theme).trim().split(/\s+/).pop());
       const heads = body.filter((b) => norm([b.heading, b.paragraphs]).includes(t)).length;
-      const n = count(theme);
+      const n = whole.split(t).length - 1;
       const ok = top.includes(t) && heads >= Math.ceil(body.length / 2) && n >= 4;
       add('theme', `중심 주제「${theme}」`, ok, `제목·요약 ${top.includes(t) ? '있음' : '없음'}, 대지 ${heads}/${body.length}, ${n}회`,
-        `one_line과 summary 첫 줄에「${theme}」${eul(theme)} 넣고 대지 절반 이상에서「${theme}」와 연결하세요. 노트의 theme_notes(설명·본문 해설)를 담으세요.`);
+        `one_line과 summary 첫 줄에「${theme}」${eul(theme)} 넣고 대지 절반 이상의 내용에서「${theme}」와 연결하세요(대지 제목마다 같은 구절을 되풀이하지는 마세요). 노트의 theme_notes(설명·본문 해설)를 담으세요.`);
     }
     // 2. 그리스도 쪽
     const green = marksOf(doc, 'g');
@@ -258,7 +262,7 @@ ${transcript}`;
     const hitBreak = breakKeys.filter((k) => whole.includes(k));
     const devilHead = body.some((b) => /마귀|사단|사탄|원수|뱀|막는|못하게/.test(norm(b.heading)));
     const okDevil = red.length >= 3 && devilHead && (!breakKeys.length || hitBreak.length >= Math.min(2, breakKeys.length)) && /마귀|사단|사탄|막|못하게/.test(top);
-    add('devil', `마귀 쪽 (${theme ? `「${theme}」${eul(theme)}` : '주제를'} 막는 것과 깨뜨림)`, okDevil,
+    add('devil', '마귀 쪽 (막고 빼앗는 것과 깨뜨림)', okDevil,
       `빨강 ${red.length}곳, 마귀 대지 ${devilHead ? '있음' : '없음'}, 막는 것 ${hitBreak.join('·') || '없음'}${breakKeys.length ? `/${breakKeys.length}` : ''}`,
       `본론에 '무엇이「${theme}」${eul(theme)} 막는가와 그리스도의 이름으로 깨뜨림' 대지를 두고(제목에 마귀·사단 또는 '막는'이 드러나게), summary에도 한 줄 넣으세요. 노트의 contrast.break, break_keys(${breakKeys.join(', ')}), spiritual_warfare의 대적·선포를 빨강으로 담으세요.`);
     // 4. 본문 핵심 언어
@@ -278,6 +282,23 @@ ${transcript}`;
     const needD = Math.min(details.length, Math.max(2, Math.ceil(details.length * 0.6)));
     add('detail', '설교의 실제 예화·본문 해설', hitD.length >= needD, details.length ? `${hitD.length}/${details.length} (${hitD.join('·') || '없음'})` : '노트에 없음',
       `빠진 예화·본문 세부(${details.filter((k) => !hitD.includes(k)).join(', ')})를 관련 대지에 설교자의 표현으로 한두 문장씩 넣으세요. 일반론 문장으로 바꾸지 마세요.`);
+    // 7. 설교자가 직접 밝힌 핵심·요점
+    const core = String(notes.stated_core || '').trim();
+    const sp = (notes.stated_points || []).filter(Boolean);
+    if (core || sp.length) {
+      // 조사·어미가 달라도 잡히게 두 글자 묶음이 얼마나 겹치는지로 본다
+      const grams = (s) => { const t = norm(s).replace(/[^가-힣A-Za-z0-9]/g, ''); const out = new Set(); for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2)); return [...out]; };
+      const hit = (s) => { const g2 = grams(s); if (!g2.length) return true; return g2.filter((x) => whole.includes(x)).length / g2.length >= 0.6; };
+      const coreOk = !core || hit(core);
+      const spHit = sp.filter(hit).length;
+      add('stated', '설교자가 직접 밝힌 핵심·요점', coreOk && spHit >= Math.ceil(sp.length * 0.7), `${core ? (coreOk ? '핵심 반영' : '핵심 빠짐') : ''}${sp.length ? ` 요점 ${spHit}/${sp.length}` : ''}`.trim(),
+        `설교자가 직접 밝힌 핵심("${core}")을 one_line에 살리고, 요점(${sp.join(' / ')})을 대지나 summary에 드러내세요.`);
+    }
+    // 8. 한 장 분량
+    const len = window.Markup.strip([doc.one_line, ...(doc.summary || []), ...(doc.intro || []), ...body.flatMap((b) => [b.heading, ...(b.paragraphs || [])]), ...(doc.conclusion || [])].join('')).length;
+    const longHead = body.filter((b) => String(b.heading || '').length > 28).length;
+    add('length', '한 장 분량', len <= 1800 && !longHead, `본문 ${len}자${longHead ? `, 긴 대지 제목 ${longHead}개` : ''}`,
+      `전체를 1,300~1,600자로 줄이고(덜 중요한 설명부터), 대지 제목은 15자 안팎으로 짧게 쓰세요. 통과한 항목의 핵심은 지키세요.`);
     return items;
   }
 
@@ -299,7 +320,8 @@ ${infoLine(meta)}
 본문 말씀이 주어졌으면 그것을 주 본문으로 삼고(scripture_main에 '출애굽기 25:1-9'처럼 책 이름을 풀어 쓴 형태로), 그 본문의 내용과 문맥에 비추어 설교를 해석하세요.
 
 우선순위(위가 먼저, 한 장에 다 못 담으면 아래부터 줄이세요):
-1. 제목과 본문의 중심 주제「${theme}」가 정리본의 주인공입니다. 제목·one_line·summary 첫 줄에 들어가고, 대지마다 이 주제와 어떻게 이어지는지 드러나야 합니다(대지 제목 절반 이상에 이 말이 들어가게). 노트의 theme_notes(중심 주제에 대한 설명·본문 해설·의미)는 줄이지 말고 담으세요. 다른 어떤 규칙도 이 주제의 비중을 줄이면 안 됩니다.
+0. 설교자가 직접 밝힌 핵심(노트의 stated_core)과 요점(stated_points)이 있으면 그것이 정답입니다. one_line은 stated_core를 살려 쓰고, stated_points는 대지나 summary에 그대로 드러내세요.
+1. 제목과 본문의 중심 주제「${theme}」가 정리본의 주인공입니다. 제목·one_line·summary 첫 줄에 들어가고, 대지마다 이 주제와 어떻게 이어지는지 내용으로 드러나야 합니다. 같은 긴 구절을 대지 제목마다 되풀이하지 말고, 대지 제목은 각 대지의 고유한 내용을 짧게(15자 안팎) 쓰세요. 노트의 theme_notes(중심 주제에 대한 설명·본문 해설·의미)는 줄이지 말고 담으세요. 다른 어떤 규칙도 이 주제의 비중을 줄이면 안 됩니다.
 2. 그 주제를 둘러싼 그리스도와 마귀의 대립(아래 설명).
 3. 본문 핵심 언어(text_keys)와 반복·강조된 말.
 4. 예화, 마귀 관련 세부 선포, 용어 풀이, 여러 관점, 묵상 질문.
@@ -353,7 +375,7 @@ ${JSON.stringify(notes, null, 1)}`;
 ${miss.map((c, i) => `${i + 1}. ${c.label}: ${c.detail}\n   → ${c.fix}`).join('\n')}
 
 이미 통과한 항목(${check.filter((c) => c.ok).map((c) => c.label).join(', ') || '없음'})은 그대로 지키세요. 기존 문장·표시·예화를 지우거나 일반론으로 바꾸지 말고, 빠진 것만 보충하세요.
-한 장에 넘치면 여러 관점·용어 풀이·묵상 질문을 줄이세요. 같은 JSON 형식과 표시 문법으로, JSON 하나만 출력하세요.
+전체 분량(1,300~1,600자)과 대지 제목 길이(15자 안팎)는 지키세요. 보충한 만큼 다른 문장을 줄이고, 한 장에 넘치면 여러 관점·용어 풀이·묵상 질문을 줄이세요. 같은 JSON 형식과 표시 문법으로, JSON 하나만 출력하세요.
 ${MARK_RULES}
 
 [정리본]

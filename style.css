@@ -218,3 +218,5 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .ck .ck-i { font-weight: 900; width: 1.2em; flex: none; }
 .ck li.ok .ck-i { color: #1f7a45; }
 .ck li.no .ck-i { color: #c0392b; }
+
+.page .nobg { background: none !important; padding: 0 !important; }

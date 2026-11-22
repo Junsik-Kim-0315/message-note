@@ -81,19 +81,31 @@
   // html2canvas는 여러 줄에 걸친 형광 표시를 한 덩어리 사각형으로 칠해 앞 글자를 가린다.
   // 그래서 표시를 단어 단위 조각으로 나눠 줄이 바뀌어도 바르게 칠해지게 한다.
   function splitMarks(root) {
-    root.querySelectorAll('.m-g,.m-r,.m-y,.m-t,.m-v').forEach((el) => {
-      if (el.children.length) return;
-      const cls = el.className;
-      const words = el.textContent.split(/(?<=\s)/);
-      if (words.length < 2) return;
-      el.className = '';
-      el.textContent = '';
-      // 단어는 줄바꿈 없는 조각, 뒤 공백은 따로 같은 색 조각으로 둬서 공백에서만 줄이 바뀌게 한다
-      words.forEach((w) => {
-        const m = w.match(/^(\S*)(\s*)$/) || [w, w, ''];
-        if (m[1]) { const sp = document.createElement('span'); sp.className = `${cls} piece`; sp.textContent = m[1]; el.appendChild(sp); }
-        if (m[2]) { const gap = document.createElement('span'); gap.className = `${cls} gap`; gap.textContent = m[2]; el.appendChild(gap); }
+    const MARK = /\bm-[grytv]\b/;
+    const BG = ['m-g', 'm-r', 'm-y'];
+    const outer = [...root.querySelectorAll('.m-g,.m-r,.m-y,.m-t,.m-v')].filter((el) => !el.parentElement.closest('.m-g,.m-r,.m-y,.m-t,.m-v'));
+    outer.forEach((top) => {
+      // 안에 든 글자 조각마다, 감싼 표시들 중 가장 안쪽 형광색을 조각에 직접 입힌다(안에 다른 표시가 섞여도 줄바꿈이 바르게 칠해지게)
+      const walker = document.createTreeWalker(top, NodeFilter.SHOW_TEXT);
+      const texts = []; let n; while ((n = walker.nextNode())) texts.push(n);
+      texts.forEach((t) => {
+        let bg = '', under = false;
+        for (let a = t.parentElement; a && a !== top.parentElement; a = a.parentElement) {
+          const c = BG.find((k) => a.classList.contains(k)); if (c && !bg) bg = c;
+          if (a.classList.contains('m-t')) under = true; // 밑줄은 물려받지 않으니 조각에 직접 준다
+        }
+        if (under) bg = `${bg} m-t`.trim();
+        const frag = document.createDocumentFragment();
+        t.textContent.split(/(?<=\s)/).forEach((w) => {
+          const m = w.match(/^(\S*)(\s*)$/) || [w, w, ''];
+          if (m[1]) { const sp = document.createElement('span'); sp.className = `${bg} piece`.trim(); sp.textContent = m[1]; frag.appendChild(sp); }
+          if (m[2]) { const gap = document.createElement('span'); gap.className = `${bg} gap`.trim(); gap.textContent = m[2]; frag.appendChild(gap); }
+        });
+        t.replaceWith(frag);
       });
+      // 바깥 표시들은 색을 빼고(조각이 대신 칠함) 글자 모양만 남긴다
+      [top, ...top.querySelectorAll('.m-g,.m-r,.m-y')].forEach((el) => { if (BG.some((k) => el.classList.contains(k)) && !el.classList.contains('piece') && !el.classList.contains('gap')) el.classList.add('nobg'); });
+      if (!MARK.test(top.className)) return;
     });
   }
 
@@ -104,7 +116,7 @@
   async function layout(d, stage) {
     await ensureFonts();
     const foot = `${d.date || ''} ${d.title || ''}`.trim();
-    for (const drop of DROPS) {
+    for (const drop of DROPS.slice(0, 5)) { // 요약·태그를 빼는 마지막 단계는 문장 덜어 내기 뒤로 미룬다
       stage.innerHTML = '';
       const page = newPage(stage, foot);
       const content = page.querySelector('.content');
@@ -117,7 +129,37 @@
         if (content.scrollHeight <= content.clientHeight + 1) return [page];
       }
     }
-    return [...stage.querySelectorAll('.page')]; // 마지막 단계(가장 작게)로 남긴다
+    // 그래도 넘치면 가장 긴 문단의 마지막 문장부터 덜어 낸다(정리본 원본은 그대로 두고 그리기용 사본만)
+    const c = JSON.parse(JSON.stringify(d));
+    const last = new Set(DROPS[4]);
+    const paraLists = () => [c.intro, ...(c.body || []).map((b) => b.paragraphs), c.conclusion].filter(Array.isArray);
+    for (let i = 0; i < 40; i++) {
+      let best = null, bi = -1, len = 0;
+      paraLists().forEach((list) => list.forEach((t, j) => { if (String(t).length > len) { len = String(t).length; best = list; bi = j; } }));
+      if (!best) break;
+      const sents = String(best[bi]).split(/(?<=[.!?。]\]{0,2})\s+/);
+      if (sents.length < 2) break;
+      sents.pop(); best[bi] = sents.join(' ');
+      stage.innerHTML = '';
+      const page = newPage(stage, foot);
+      const content = page.querySelector('.content');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = buildBlocks(c, last).join('');
+      splitMarks(tmp);
+      [...tmp.childNodes].forEach((nd) => content.appendChild(nd));
+      page.style.fontSize = `${SIZES[SIZES.length - 1]}px`;
+      if (content.scrollHeight <= content.clientHeight + 1) return [page];
+    }
+    // 마지막 수단: 요약·태그까지 빼고 가장 작은 글자로
+    stage.innerHTML = '';
+    const page = newPage(stage, foot);
+    const content = page.querySelector('.content');
+    const tmp = document.createElement('div');
+    tmp.innerHTML = buildBlocks(c, new Set(DROPS[5])).join('');
+    splitMarks(tmp);
+    [...tmp.childNodes].forEach((nd) => content.appendChild(nd));
+    page.style.fontSize = `${SIZES[SIZES.length - 1]}px`;
+    return [page];
   }
 
   async function toPdfBlob(d, stage) {
