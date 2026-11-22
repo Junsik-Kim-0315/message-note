@@ -65,6 +65,52 @@ ${prevTail ? `직전 구간의 끝부분(문맥 참고용, 다시 쓰지 마세�
     return call(cfg, cfg.sttModel, [{ text: prompt }, { inline_data: { mime_type: 'audio/wav', data } }], { temperature: 0, timeoutMs: 90000 });
   }
 
+  // ---------- 긴 녹음 파일: Gemini에 파일째 올리고 시간 구간별로 받아쓰기 ----------
+  // 아이폰에서 한 시간 넘는 녹음을 통째로 풀면 메모리가 모자랄 수 있어서, 디코딩 없이 원본을 올린다.
+  const API = 'https://generativelanguage.googleapis.com';
+  async function uploadFile(cfg, file, onProgress) {
+    const mime = file.type || (/\.m4a$/i.test(file.name) ? 'audio/mp4' : /\.wav$/i.test(file.name) ? 'audio/wav' : 'audio/mpeg');
+    const boundary = 'mn' + Math.random().toString(36).slice(2);
+    const body = new Blob([
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ file: { display_name: file.name.slice(0, 100) } })}\r\n`,
+      `--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`, file, `\r\n--${boundary}--`,
+    ]);
+    const res = await new Promise((resolve, reject) => {
+      // 진행률을 보여주려고 XHR 사용
+      const x = new XMLHttpRequest();
+      x.open('POST', `${API}/upload/v1beta/files?uploadType=multipart`);
+      x.setRequestHeader('x-goog-api-key', cfg.key);
+      x.setRequestHeader('Content-Type', `multipart/related; boundary=${boundary}`);
+      x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+      x.onload = () => resolve({ status: x.status, text: x.responseText });
+      x.onerror = () => reject(new Error('녹음 파일을 올리지 못했어요. 인터넷 연결을 확인해 주세요.'));
+      x.send(body);
+    });
+    let data = {};
+    try { data = JSON.parse(res.text); } catch (e) {}
+    if (res.status >= 300 || !data.file) throw new Error(`파일 올리기 실패 ${res.status}: ${data.error?.message || ''}`.trim());
+    let f = data.file;
+    // 처리 완료(ACTIVE)까지 기다린다
+    for (let i = 0; i < 90 && f.state === 'PROCESSING'; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const r = await fetch(`${API}/v1beta/${f.name}`, { headers: { 'x-goog-api-key': cfg.key } });
+      if (r.ok) f = await r.json();
+    }
+    if (f.state && f.state !== 'ACTIVE') throw new Error('Gemini가 녹음 파일을 처리하지 못했어요.');
+    return { uri: f.uri, mime: f.mimeType || mime };
+  }
+
+  const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  async function transcribeRange(cfg, ref, from, to) {
+    const prompt = `이 오디오는 한국 교회 현장 예배 전체 녹음입니다. 그중 ${mmss(from)}부터 ${mmss(to)}까지 구간만 들리는 말을 한국어로 그대로 받아쓰세요.
+- 이 구간 밖의 내용은 절대 쓰지 마세요.
+- 성경 책 이름, 장·절, 교회 용어(은혜, 성령, 언약 등)는 바른 표기로 쓰세요.
+- 잘 들리지 않는 부분은 지어내지 말고 생략하세요.
+- 찬양·연주는 (찬양), 다 같이 하는 기도·신앙고백·광고는 (기도), (광고)처럼 한 줄로만 표시하세요.
+- 화자 이름, 시간, 설명 없이 받아쓴 문장만 출력하세요.`;
+    return call(cfg, cfg.sttModel, [{ file_data: { mime_type: ref.mime, file_uri: ref.uri } }, { text: prompt }], { temperature: 0, timeoutMs: 180000 });
+  }
+
   async function liveSummary(cfg, meta, transcript) {
     const prompt = `당신은 예배 설교를 듣는 사람을 돕는 정리 도우미입니다. 아래는 지금까지 진행된 설교의 실시간 받아쓰기입니다(음성인식이라 오타가 있을 수 있으니 문맥으로 바로잡아 이해하세요).
 예배: ${meta.service_type || ''} / 설교자: ${meta.preacher || ''} / 본문 말씀: ${meta.scripture || '(미입력)'}
@@ -87,7 +133,7 @@ ${transcript}`;
   }
 
   async function finalDoc(cfg, meta, transcript) {
-    const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래는 현장 예배 설교의 음성인식 받아쓰기 전체입니다. 음성인식 오류는 문맥으로 바로잡되, 설교자가 말하지 않은 내용을 덧붙이지 마세요(단, '여러 관점' 항목은 본문의 배경 지식을 보충해도 됩니다).
+    const prompt = `당신은 한국 교회 설교를 깊이 있게 정리하는 편집자입니다. 아래는 현장 예배의 음성인식 받아쓰기 전체입니다. 찬양, 기도, 광고, 헌금, 축도 등 설교가 아닌 부분이 섞여 있을 수 있으니 설교 부분만 골라 정리하세요(설교 전 성경 봉독은 본문 파악에 활용). 음성인식 오류는 문맥으로 바로잡되, 설교자가 말하지 않은 내용을 덧붙이지 마세요(단, '여러 관점' 항목은 본문의 배경 지식을 보충해도 됩니다).
 
 설교 정보: 날짜 ${meta.date} / 예배 ${meta.service_type || ''} / 설교자 ${meta.preacher || '미상'} / 사용자가 적은 제목 ${meta.title || '(없음, 추정할 것)'} / 사용자가 적은 본문 말씀 ${meta.scripture || '(없음, 추정할 것)'}
 본문 말씀이 주어졌으면 그것을 주 본문으로 삼고(scripture_main에 '출애굽기 25:1-9'처럼 책 이름을 풀어 쓴 형태로), 그 본문의 내용과 문맥에 비추어 설교를 해석하세요. 받아쓰기의 성경 구절 오인식도 이 본문을 기준으로 바로잡으세요.
@@ -131,5 +177,5 @@ ${transcript}`;
     return call(cfg, cfg.anaModel, [{ text: '“확인”이라고만 답하세요.' }], { temperature: 0, timeoutMs: 30000 });
   }
 
-  window.Gemini = { transcribe, liveSummary, finalDoc, ping };
+  window.Gemini = { transcribe, transcribeRange, uploadFile, liveSummary, finalDoc, ping };
 })();

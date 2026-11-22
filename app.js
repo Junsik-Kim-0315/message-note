@@ -118,7 +118,9 @@
     if (!wav) { seg.status = 'failed'; return; }
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        seg.text = await Gemini.transcribe(cfg, wav, prevTail);
+        seg.text = wav.remote
+          ? await Gemini.transcribeRange(cfg, wav.remote, wav.from, wav.to)
+          : await Gemini.transcribe(cfg, wav, prevTail);
         seg.status = 'done'; wavs.delete(seg.i);
         return;
       } catch (e) {
@@ -313,8 +315,9 @@
       S.meta.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
     showTab('transcript');
-    setStatus('녹음 파일 여는 중');
     lockScreen();
+    if (file.size > BIG_FILE) return processBigFile(file);
+    setStatus('녹음 파일 여는 중');
     let audio;
     try {
       const buf = await file.arrayBuffer();
@@ -322,9 +325,7 @@
       const octx = new OAC(1, TARGET_RATE, TARGET_RATE); // 16kHz로 바로 디코딩해 메모리를 아낀다
       audio = await new Promise((res, rej) => { const p = octx.decodeAudioData(buf, res, rej); if (p?.then) p.then(res, rej); });
     } catch (e) {
-      setStatus('대기 중');
-      toast('이 녹음 파일을 열 수 없어요. 음성 메모(m4a)나 mp3, wav 파일을 올려주세요.', 5000);
-      return;
+      return processBigFile(file); // 여기서 못 열면 Gemini에 파일째 올려 본다
     }
     const rate = audio.sampleRate;
     const ch = audio.getChannelData(0);
@@ -346,6 +347,44 @@
       S.segments.push(seg);
       list.push(seg);
     }
+    await runFileSegments(list);
+  }
+
+  // 긴 녹음: 디코딩 없이 Gemini에 올리고 5분 구간별로 받아쓴다
+  const BIG_FILE = 15 * 1024 * 1024;
+  const REMOTE_SEG_SEC = 300;
+  function audioDuration(file) {
+    return new Promise((resolve) => {
+      const el = document.createElement('audio');
+      const url = URL.createObjectURL(file);
+      const done = (v) => { URL.revokeObjectURL(url); resolve(v); };
+      el.preload = 'metadata';
+      el.onloadedmetadata = () => done(isFinite(el.duration) ? el.duration : 0);
+      el.onerror = () => done(0);
+      setTimeout(() => done(0), 15000);
+      el.src = url;
+    });
+  }
+  async function processBigFile(file) {
+    const total = await audioDuration(file);
+    if (!total) { setStatus('대기 중'); toast('녹음 파일 길이를 읽지 못했어요. 음성 메모(m4a)나 mp3 파일을 올려주세요.', 5000); return; }
+    let ref;
+    try {
+      ref = await Gemini.uploadFile(cfg, file, (p) => setStatus(`녹음 파일 올리는 중 ${Math.round(p * 100)}%`));
+    } catch (e) { setStatus('대기 중'); toast(e.message, 5000); return; }
+    S.elapsed = Math.max(S.elapsed || 0, total);
+    $('timer').textContent = fmt(total);
+    const list = [];
+    for (let s = 0; s < total - 2; s += REMOTE_SEG_SEC) {
+      const seg = { i: segCounter++, t: s, status: 'pending', text: '' };
+      wavs.set(seg.i, { remote: ref, from: s, to: Math.min(total, s + REMOTE_SEG_SEC) });
+      S.segments.push(seg);
+      list.push(seg);
+    }
+    await runFileSegments(list);
+  }
+
+  async function runFileSegments(list) {
     renderSegments(); persist();
     let done = 0;
     const update = () => setStatus(`파일 받아쓰기 ${done}/${list.length}`);
