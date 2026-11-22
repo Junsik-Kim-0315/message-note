@@ -226,7 +226,9 @@ ${infoLine(meta)}
  b. 많이 반복된 말뿐 아니라, 한 번만 나와도 논증의 결론 자리('…이 말이에요', '…이겁니다', '그래서 …', '…축복합니다')에 나온 말은 핵심입니다(예: '무아지경으로 드디어 살게 된다 이 말이에요', '운명의 굴레').
  c. 마무리 기도는 결론(적용·사명) 쪽에 치우치는 경우가 많습니다. 본론 중간의 문제 진단과 해법(예: 허무주의·중독 → 즉각 회개, 나를 쳐 복종)을 마무리 기도 때문에 놓치지 마세요.
  d. 단락들을 묶어 flow3를 만드세요: ① 하나님이 이미 해 주신 것(복음의 사실) ② 무엇에 빠져 하나님을 잃어버리고, 어떻게 돌이켜 싸워 이기는가 ③ 그리하여 어떤 삶·사명으로 열매 맺는가. 제목과 실제 흐름이 떨어져 있으면 title_gap에 적고 실제 흐름을 따릅니다(예: 2026-11-22 2부 눅 15:8-10은 제목은 드라크마였지만 실제 흐름은 창 3:15 사실의 가치 → 요 8:44 운명의 굴레·허무주의·중독 → 즉각 회개·나를 쳐 복종 → 통찰력·한 영혼의 가치·자발적 헌신·전도자의 기쁨).
-${window.MN_SIGNALS ? ` e. 아래는 받아쓰기에서 설교자가 단락을 결론지은 문장을 앞·중간·끝 순서로 뽑은 것입니다. 흐름을 잡는 단서로 쓰세요.
+${(window.MN_REPEATED || []).length ? ` f. 받아쓰기에서 직접 센 반복 상위어(그리스도·하나님·예수 제외, 괄호는 횟수): ${window.MN_REPEATED.map(([w, c]) => `${w}(${c})`).join(', ')}
+   가장 많이 반복된 두세 말은 이 설교의 핵심어입니다. central_theme은 이 상위어로 세우고(예: 2부는 가치·사실 → '사실의 가치'), text_keys에 weight 3으로 넣고, 그 말이 설교에서 어떤 뜻으로 쓰였는지 theme_notes에 담으세요.
+` : ''}${window.MN_SIGNALS ? ` e. 아래는 받아쓰기에서 설교자가 단락을 결론지은 문장을 앞·중간·끝 순서로 뽑은 것입니다. 흐름을 잡는 단서로 쓰세요.
 ${window.MN_SIGNALS}
 ` : ''}
 1. 찬양, 대표기도, 광고, 헌금, 축도 등을 빼고 '설교'가 시작되는 곳과 끝나는 곳을 찾으세요. 설교 전 성경 봉독이 있으면 본문 파악에 쓰세요.
@@ -349,12 +351,16 @@ ${transcript}`;
     const missKeys = keys.filter((k) => !whole.includes(head(k)));
     add('keys', '본문 핵심 언어', !missKeys.length, keys.length ? (missKeys.length ? `빠짐: ${missKeys.join(', ')}` : keys.join(', ')) : '노트에 없음',
       `빠진 본문 핵심 언어(${missKeys.join(', ')})를 각각 관련 대지나 요약에 굵게+밑줄로 넣으세요.`);
-    // 5. 반복·강조된 말
-    const heavy = [...(notes.text_keys || [])].filter((k) => (k.weight || 0) >= 3).map((k) => k.key);
+    // 5. 반복·강조된 말: 노트의 weight 3 핵심어 + 받아쓰기에서 직접 센 반복 상위어(가장 많은 말의 절반 이상 나온 말, 최대 3개)
+    const rep = window.MN_REPEATED || [];
+    const topN = rep.length ? rep[0][1] : 0;
+    const topWords = rep.filter(([, c]) => c >= Math.max(8, topN * 0.5)).slice(0, 3).map(([w]) => w);
+    const heavy = [...new Set([...topWords, ...[...(notes.text_keys || [])].filter((k) => (k.weight || 0) >= 3).map((k) => k.key)])];
     const headsAll = norm([doc.one_line, doc.summary, body.map((b) => b.heading)]);
-    const missHeavy = heavy.filter((k) => !headsAll.includes(head(k)));
-    add('weight', '많이 반복·강조된 말이 앞에', !missHeavy.length, heavy.length ? (missHeavy.length ? `앞에 없음: ${missHeavy.join(', ')}` : heavy.join(', ')) : '해당 없음',
-      `많이 반복·강조된 말(${missHeavy.join(', ')})을 one_line·summary·대지 제목 중 한 곳에 올리세요.`);
+    // 상위어는 앞(한 줄·요약·대지 제목)에 있고 본문 전체에서도 3번 이상 써야 통과
+    const missHeavy = heavy.filter((k) => !headsAll.includes(head(k)) || (topWords.includes(k) && count(k) < 3));
+    add('weight', '많이 반복·강조된 말이 앞에', !missHeavy.length, (topWords.length ? `받아쓰기 반복: ${rep.slice(0, 5).map(([w, c]) => `${w} ${c}회`).join(', ')} · ` : '') + (heavy.length ? (missHeavy.length ? `앞에 없음: ${missHeavy.join(', ')}` : '모두 앞에 있음') : '해당 없음'),
+      `설교에서 가장 많이 반복된 말(${missHeavy.join(', ')})을 one_line과 summary에 올리고, 대지 본문에서도 그 말이 설교에서 어떤 뜻인지(예: '사실'은 창 3:15 그리스도가 역사적 사실, '가치'는 그 사실을 내 몸에 적용해 아는 가장 귀한 것) 3번 이상 살려 쓰세요.`);
     // 6. 실제 예화·본문 해설
     const details = (notes.detail_keys || []).map(head).filter(Boolean);
     const hitD = details.filter((k) => whole.includes(k));
@@ -403,7 +409,8 @@ ${transcript}`;
     const theme = String(notes.central_theme || [...(notes.text_keys || [])].sort((a, b) => (b.weight || 0) - (a.weight || 0))[0]?.key || (meta.title || '').split(/[\s,·]/)[0] || '').trim();
     // 상시 축(그리스도·영적 싸움·재창조)과 이번 본문 핵심어 가운데 받아쓰기에 실제로 나온 말은 정리본에서 빠지지 않게 목록으로 넘긴다
     const flat = transcript.replace(/\s+/g, '');
-    const mustKeys = [...new Set([...CORE_KEYS, ...(notes.text_keys || []).map((c) => c.key), ...(window.MN_VOCAB || [])])]
+    const topRep = (window.MN_REPEATED || []).slice(0, 6).map(([w]) => w);
+    const mustKeys = [...new Set([...CORE_KEYS, ...topRep, ...(notes.text_keys || []).map((c) => c.key), ...(window.MN_VOCAB || [])])]
       .filter((k) => k && flat.includes(String(k).replace(/\s+/g, '').split(/[·(]/)[0])).slice(0, 24);
     // 실제 반복 횟수를 세어 중요도 판단에 쓰게 한다
     const countOf = (k) => flat.split(String(k).replace(/\s+/g, '').split(/[·(]/)[0]).length - 1;

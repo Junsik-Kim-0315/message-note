@@ -163,7 +163,24 @@
     return thirds.map((a, k) => a.length ? `(${label[k]}) ` + thin(a).map(([, t]) => t).join(' / ') : '').filter(Boolean).join('\n');
   }
 
+  // 반복 상위어: 받아쓰기에서 내용어(명사 위주)를 직접 세어 많이 반복된 순서로 돌려준다.
+  // 그리스도·하나님·예수처럼 어느 설교에나 많은 말은 뺀다(예: 2026-11-22 2부는 가치 31회, 사실 28회 / 1부는 성막 38회).
+  const STOP = new Set(('여러분 우리 그래서 그러니까 이제 지금 오늘 이렇게 그렇게 그런데 그러면 정말 진짜 이런 그런 저런 무엇 뭐예요 그거 이거 이것 그것 저거 너무 다시 같은 모든 이미 그리고 하지만 때문 사람 사람들 이게 그냥 어떻게 얼마나 가지고 자꾸 계속 여기 거기 저기 하나 한번 아멘 목사님 교회 말씀 이름 너희 우리들 자기 마음 세상 문제 함께 축복 할렐루야 예배 성도 가족 그분 당신 저희 나라 생각 여러분들 이번 보세 그랬어 그랬잖아 있어 없어 그때 아니 바로 항상 언제나 맞아 정도 순간 모습 이야기 얘기 부분 경우 시간 오늘날 처음 마지막 다음 이상 무슨 어디 누구 언제 왜냐 정말로 겁니다 그래 축복합니다 된다 주신 말이 거예 그게 이건 저건 뭐냐 거기서 어느 날마다').split(' '));
+  const ALWAYS = new Set(['예수', '하나님', '그리스도', '예수님', '주님', '그리스']);
+  const particle = /(으로부터|에게서|으로서|으로써|이라는|라는|이라고|라고|에서는|에게는|으로는|까지|부터|에서|에게|으로|이랑|처럼|보다|이다|이고|이며|이요|이죠|입니다|이에요|예요|이야|이나|이든|만큼|들이|들은|들을|들의|들도|들에|은|는|이|가|을|를|의|에|와|과|도|만|로|들|요|야)$/;
+  const verbish = /(하|되|있|없|했|됐|봤|줬|갔|왔|겠|시|고|서|게|지|면|니|며|던|는데|어|아|여|자|죠|네|데|까|든|러|려|도록|면서|다|요|라)$/;
+  function repeated(text, n = 10) {
+    const m = new Map();
+    for (const w of String(text || '').split(/[^가-힣]+/)) {
+      if (w.length < 2) continue;
+      const b = w.replace(particle, '');
+      if (b.length < 2 || STOP.has(b) || ALWAYS.has(b) || ALWAYS.has(w.slice(0, 4)) || (b === w && verbish.test(w))) continue;
+      m.set(b, (m.get(b) || 0) + 1);
+    }
+    return [...m].sort((a, b) => b[1] - a[1]).slice(0, n);
+  }
+
   // 정리할 때 반드시 살릴 설교자 핵심 어휘를 넘긴다
   const vocabOf = (p) => (p?.vocab || []).map((v) => String(v).split(/[(]/)[0].trim());
-  window.Learn = { signals, vocabOf, load, merge, save, toText, termsText, toHtml, keyOf, clean };
+  window.Learn = { repeated, signals, vocabOf, load, merge, save, toText, termsText, toHtml, keyOf, clean };
 })();

@@ -845,6 +845,7 @@
       const profile = await Learn.load(meta.preacher);
       window.MN_VOCAB = Learn.vocabOf(profile);
       const cleaned = Learn.clean(text); // 시간 표시·겹친 문단 같은 잡음 제거
+      window.MN_REPEATED = Learn.repeated(cleaned.text.length > 50 ? cleaned.text : text, 10); // 직접 센 반복 상위어 [[말, 횟수]]
       window.MN_SIGNALS = Learn.signals(cleaned.text.length > 50 ? cleaned.text : text); // 설교자가 결론지은 문장(문맥 신호)
       const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n) => {
         if (n === 2) flow(2, 'active', '최종 정리 중 (2/2)', '한 장으로 정리하고 색깔 표시를 넣고 있어요');
