@@ -8,31 +8,39 @@
 - [[v|...]] 성경 구절 인용: 예) [[v|요한복음 3:16]] 또는 인용된 말씀 본문.
 표시는 겹치지 않게, 강조할 부분만 짧게 감싼다.`;
 
-  async function call(cfg, model, parts, { json = false, temperature = 0.3, timeoutMs = 120000 } = {}) {
+  // thinking: 생각 단계 예산(0이면 끔). 받아쓰기는 생각이 필요 없고 느려지기만 해서 끈다.
+  async function call(cfg, model, parts, { json = false, temperature = 0.3, timeoutMs = 120000, thinking = null } = {}) {
     if (!cfg.key) throw new Error('설정에서 Gemini API 키를 넣어주세요.');
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-        method: 'POST',
-        signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts }],
-          generationConfig: { temperature, ...(json ? { responseMimeType: 'application/json' } : {}) },
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(`Gemini 오류 ${res.status}: ${data.error?.message || ''}`.trim());
-      const text = (data.candidates?.[0]?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
-      if (!json) return text.trim();
-      return parseJson(text);
-    } catch (e) {
-      if (e.name === 'AbortError') throw new Error('Gemini 응답이 너무 오래 걸려요.');
-      throw e;
-    } finally {
-      clearTimeout(timer);
-    }
+    const send = async (withThinking) => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const generationConfig = { temperature, ...(json ? { responseMimeType: 'application/json' } : {}) };
+        if (withThinking && thinking != null) generationConfig.thinkingConfig = { thinkingBudget: thinking };
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key },
+          body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data.error?.message || '';
+          // 이 모델이 생각 예산 설정을 받지 않으면 빼고 다시
+          if (withThinking && thinking != null && res.status === 400 && /thinking/i.test(msg)) return send(false);
+          throw new Error(`Gemini 오류 ${res.status}: ${msg}`.trim());
+        }
+        const text = (data.candidates?.[0]?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
+        if (!json) return text.trim();
+        return parseJson(text);
+      } catch (e) {
+        if (e.name === 'AbortError') throw new Error(`Gemini 응답이 너무 오래 걸려요 (${Math.round(timeoutMs / 1000)}초 넘음).`);
+        throw e;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    return send(true);
   }
 
   function parseJson(text) {
@@ -53,16 +61,18 @@
     });
   }
 
-  async function transcribe(cfg, wavBlob, prevTail) {
-    const prompt = `이 오디오는 한국 교회 현장 예배 설교 녹음의 약 30초 구간입니다.
+  async function transcribe(cfg, blob, prevTail, { mime = 'audio/wav', approxSec = 30 } = {}) {
+    const len = approxSec >= 60 ? `약 ${Math.round(approxSec / 60)}분` : `약 ${approxSec}초`;
+    const prompt = `이 오디오는 한국 교회 현장 예배 녹음의 ${len} 구간입니다.
 들리는 말을 한국어로 그대로 받아쓰세요.
 - 성경 책 이름, 장·절, 교회 용어(은혜, 성령, 언약 등)는 바른 표기로 쓰세요.
 - 잘 들리지 않는 부분은 지어내지 말고 생략하세요.
-- 찬양·음악만 나오면 (찬양), 말소리가 없으면 아무것도 출력하지 마세요.
+- 찬양·연주는 (찬양), 다 같이 하는 기도·신앙고백·광고는 (기도), (광고)처럼 한 줄로만 표시하고, 말소리가 없으면 아무것도 출력하지 마세요.
 - 화자 이름, 시간, 설명 없이 받아쓴 문장만 출력하세요.
 ${prevTail ? `직전 구간의 끝부분(문맥 참고용, 다시 쓰지 마세요): "${prevTail}"` : ''}`;
-    const data = await blobToBase64(wavBlob);
-    return call(cfg, cfg.sttModel, [{ text: prompt }, { inline_data: { mime_type: 'audio/wav', data } }], { temperature: 0, timeoutMs: 90000 });
+    const data = await blobToBase64(blob);
+    return call(cfg, cfg.sttModel, [{ text: prompt }, { inline_data: { mime_type: mime, data } }],
+      { temperature: 0, thinking: 0, timeoutMs: approxSec >= 60 ? 240000 : 90000 });
   }
 
   // ---------- 긴 녹음 파일: Gemini에 파일째 올리고 시간 구간별로 받아쓰기 ----------
@@ -108,7 +118,7 @@ ${prevTail ? `직전 구간의 끝부분(문맥 참고용, 다시 쓰지 마세�
 - 잘 들리지 않는 부분은 지어내지 말고 생략하세요.
 - 찬양·연주는 (찬양), 다 같이 하는 기도·신앙고백·광고는 (기도), (광고)처럼 한 줄로만 표시하세요.
 - 화자 이름, 시간, 설명 없이 받아쓴 문장만 출력하세요.`;
-    return call(cfg, cfg.sttModel, [{ file_data: { mime_type: ref.mime, file_uri: ref.uri } }, { text: prompt }], { temperature: 0, timeoutMs: 180000 });
+    return call(cfg, cfg.sttModel, [{ file_data: { mime_type: ref.mime, file_uri: ref.uri } }, { text: prompt }], { temperature: 0, thinking: 0, timeoutMs: 300000 });
   }
 
   async function liveSummary(cfg, meta, transcript) {
@@ -129,7 +139,7 @@ ${MARK_RULES}
 
 [받아쓰기]
 ${transcript}`;
-    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2 });
+    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 0, timeoutMs: 90000 });
   }
 
   async function finalDoc(cfg, meta, transcript) {
@@ -170,7 +180,7 @@ ${MARK_RULES}
 
 [받아쓰기 전체]
 ${transcript}`;
-    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, timeoutMs: 240000 });
+    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000 });
   }
 
   async function ping(cfg) {

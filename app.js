@@ -23,7 +23,7 @@
   function persist() {
     const meta = readMeta();
     S.meta = meta;
-    store.set('mn_session', { ...S, segments: S.segments.map(({ i, t, status, text }) => ({ i, t, status, text })) });
+    store.set('mn_session', { ...S, segments: S.segments.map(({ i, t, len, status, text }) => ({ i, t, len, status, text })) });
   }
 
   // ---------- 화면 공통 ----------
@@ -95,13 +95,20 @@
     $('trEmpty').hidden = S.segments.length > 0;
     $('trList').innerHTML = S.segments.map((s) => {
       const label = s.status === 'pending' ? '받아쓰는 중…' : s.status === 'failed' ? '인식 실패' : '';
-      const retry = s.status === 'failed' && wavs.has(s.i) ? ` <button class="btn" data-retry="${s.i}">다시</button>` : '';
+      const retry = s.status === 'failed' && (wavs.has(s.i) || fileJob) ? ` <button class="btn" data-retry="${s.i}">다시</button>` : '';
       return `<div class="seg ${s.status}"><div class="t">${fmt(s.t)} ${label}${retry}</div>${esc(s.text || '')}</div>`;
     }).join('');
+    const nFail = S.segments.filter((s) => s.status === 'failed').length;
+    $('btnRetryFailed').hidden = !nFail;
+    $('btnRetryFailed').textContent = `실패한 구간 다시 (${nFail}개)`;
   }
-  $('trList').addEventListener('click', (e) => {
+  $('trList').addEventListener('click', async (e) => {
     const i = e.target.dataset?.retry;
-    if (i != null) { const seg = S.segments.find((s) => s.i === Number(i)); seg.status = 'pending'; renderSegments(); enqueue(seg); }
+    if (i == null) return;
+    const seg = S.segments.find((s) => s.i === Number(i));
+    if (!wavs.has(seg.i) && fileJob && S.fileSig === fileJob.sig) wavs.set(seg.i, () => fileJob.makeSource(seg));
+    seg.status = 'pending'; renderSegments();
+    if (fileJob && S.fileSig === fileJob.sig) { await transcribeSeg(seg, ''); renderSegments(); persist(); } else enqueue(seg);
   });
 
   // ---------- 오디오 → WAV ----------
@@ -141,7 +148,9 @@
       try {
         seg.text = wav.remote
           ? await Gemini.transcribeRange(cfg, wav.remote, wav.from, wav.to)
-          : await Gemini.transcribe(cfg, wav, prevTail);
+          : wav.blob
+            ? await Gemini.transcribe(cfg, wav.blob, '', { mime: wav.mime, approxSec: wav.sec })
+            : await Gemini.transcribe(cfg, wav, prevTail);
         seg.status = 'done'; wavs.delete(seg.i);
         return;
       } catch (e) {
@@ -326,59 +335,24 @@
   window.addEventListener('pagehide', () => { if (rec) { flushSegment(true); persist(); } });
 
   // ---------- 녹음 파일로 정리 (음성 메모 등) ----------
+  // 파일 종류와 크기에 따라 조각 내는 방법을 고른다:
+  //  - mp3: 바이트를 5분 분량씩 잘라 그대로 보낸다 (mp3는 잘라도 재생됨, 디코딩이 필요 없어 빠르고 가벼움)
+  //  - 작은 m4a/wav: 휴대폰에서 풀어 1분씩 WAV로
+  //  - 큰 m4a 등: Gemini에 파일째 올리고 5분 구간별로
   const FILE_SEG_SEC = 60;
-  async function processFile(file) {
-    if (!cfg.key) { openSettings(); toast('먼저 Gemini API 키를 넣어주세요.'); return; }
-    if (rec) { toast('녹음 중에는 파일을 올릴 수 없어요.'); return; }
-    confirmNew();
-    if (!S.meta.date) {
-      const d = new Date(file.lastModified || Date.now());
-      S.meta.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    }
-    showTab('transcript');
-    lockScreen();
-    if (file.size > BIG_FILE) return processBigFile(file);
-    flow(0, 'active', '녹음 파일 여는 중', file.name);
-    let audio;
-    try {
-      const buf = await file.arrayBuffer();
-      const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-      const octx = new OAC(1, TARGET_RATE, TARGET_RATE); // 16kHz로 바로 디코딩해 메모리를 아낀다
-      audio = await new Promise((res, rej) => { const p = octx.decodeAudioData(buf, res, rej); if (p?.then) p.then(res, rej); });
-    } catch (e) {
-      return processBigFile(file); // 여기서 못 열면 Gemini에 파일째 올려 본다
-    }
-    const rate = audio.sampleRate;
-    const ch = audio.getChannelData(0);
-    const total = audio.duration;
-    S.elapsed = Math.max(S.elapsed || 0, total);
-    $('timer').textContent = fmt(total);
-    const offset = S.segments.length ? (S.segments[S.segments.length - 1].t + SEG_SEC) : 0;
-    const list = [];
-    for (let s = 0; s < ch.length; s += rate * FILE_SEG_SEC) {
-      const slice = ch.subarray(s, Math.min(ch.length, s + rate * FILE_SEG_SEC));
-      if (slice.length < rate * 2) continue;
-      const toWav = () => {
-        if (rate === TARGET_RATE) return encodeWav(slice);
-        return encodeWav(downsample([slice], rate));
-      };
-      if (rms(slice) < 0.002) continue;
-      const seg = { i: segCounter++, t: offset + s / rate, status: 'pending', text: '' };
-      wavs.set(seg.i, toWav);
-      S.segments.push(seg);
-      list.push(seg);
-    }
-    await runFileSegments(list);
-  }
-
-  // 긴 녹음: 디코딩 없이 Gemini에 올리고 5분 구간별로 받아쓴다
   const BIG_FILE = 15 * 1024 * 1024;
   const REMOTE_SEG_SEC = 300;
+  const MP3_MAX_BYTES = 12 * 1024 * 1024;
+  const sigOf = (f) => `${f.name}|${f.size}`;
+  const isMp3 = (f) => /mpeg|mp3/i.test(f.type) || /\.mp3$/i.test(f.name);
+  let fileJob = null; // { sig, makeSource(seg) } — 실패한 구간 다시 하기에 씀
+
   function audioDuration(file) {
     return new Promise((resolve) => {
       const el = document.createElement('audio');
       const url = URL.createObjectURL(file);
-      const done = (v) => { URL.revokeObjectURL(url); resolve(v); };
+      let fired = false;
+      const done = (v) => { if (fired) return; fired = true; URL.revokeObjectURL(url); resolve(v); };
       el.preload = 'metadata';
       el.onloadedmetadata = () => done(isFinite(el.duration) ? el.duration : 0);
       el.onerror = () => done(0);
@@ -386,30 +360,102 @@
       el.src = url;
     });
   }
-  async function processBigFile(file) {
-    const total = await audioDuration(file);
-    if (!total) { flow(0, 'error', '녹음 파일을 열지 못했어요', '음성 메모(m4a)나 mp3 파일인지 확인해 주세요'); toast('녹음 파일 길이를 읽지 못했어요. 음성 메모(m4a)나 mp3 파일을 올려주세요.', 5000); return; }
-    let ref;
+
+  async function processFile(file) {
+    if (!cfg.key) { openSettings(); toast('먼저 Gemini API 키를 넣어주세요.'); return; }
+    if (rec) { toast('녹음 중에는 파일을 올릴 수 없어요.'); return; }
+    const sig = sigOf(file);
+    // 같은 파일을 다시 고르면: 끝난 구간은 두고 실패·미완료 구간만 이어서
+    const resume = S.fileSig === sig && S.segments.some((s) => s.status !== 'done' && s.status !== 'gap');
+    if (!resume) {
+      confirmNew();
+      S.fileSig = sig;
+      if (!S.meta.date) {
+        const d = new Date(file.lastModified || Date.now());
+        S.meta.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+    }
+    showTab('transcript');
+    lockScreen();
+    flow(0, 'active', resume ? '이어서 받아쓰기 준비 중' : '녹음 파일 여는 중', file.name);
     try {
-      flow(0, 'active', '녹음 파일 올리는 중 0%', '와이파이에서 화면을 켜 둔 채로 기다려 주세요');
-      ref = await Gemini.uploadFile(cfg, file, (p) => flow(0, 'active', `녹음 파일 올리는 중 ${Math.round(p * 100)}%`, p >= 1 ? 'Gemini가 파일을 처리하고 있어요' : '와이파이에서 화면을 켜 둔 채로 기다려 주세요'));
-    } catch (e) { flow(0, 'error', '녹음 파일 올리기 실패', e.message); toast(e.message, 5000); return; }
+      if (isMp3(file) && file.size > BIG_FILE) await prepareMp3(file, resume);
+      else if (file.size > BIG_FILE) await prepareRemote(file, resume);
+      else await prepareDecoded(file, resume);
+    } catch (e) {
+      flow(0, 'error', '녹음 파일을 준비하지 못했어요', e.message);
+      return;
+    }
+    const todo = S.segments.filter((s) => s.status !== 'done' && s.status !== 'gap');
+    todo.forEach((s) => { s.status = 'pending'; wavs.set(s.i, () => fileJob.makeSource(s)); });
+    await runFileSegments(todo);
+  }
+
+  // 새로 시작할 때 구간 목록을 만든다
+  function planSegments(total, step) {
     S.elapsed = Math.max(S.elapsed || 0, total);
     $('timer').textContent = fmt(total);
-    const list = [];
-    for (let s = 0; s < total - 2; s += REMOTE_SEG_SEC) {
-      const seg = { i: segCounter++, t: s, status: 'pending', text: '' };
-      wavs.set(seg.i, { remote: ref, from: s, to: Math.min(total, s + REMOTE_SEG_SEC) });
-      S.segments.push(seg);
-      list.push(seg);
+    for (let s = 0; s < total - 2; s += step) S.segments.push({ i: segCounter++, t: s, len: Math.min(step, total - s), status: 'pending', text: '' });
+  }
+
+  async function prepareMp3(file, resume) {
+    const total = await audioDuration(file);
+    if (!total) throw new Error('녹음 파일 길이를 읽지 못했어요. 음성 메모(m4a)나 mp3 파일인지 확인해 주세요.');
+    const bps = file.size / total;
+    const step = Math.max(60, Math.min(REMOTE_SEG_SEC, Math.floor(MP3_MAX_BYTES / bps)));
+    if (!resume) planSegments(total, step);
+    fileJob = {
+      sig: sigOf(file),
+      makeSource: (seg) => {
+        const len = seg.len || step;
+        const a = Math.max(0, Math.floor(seg.t * bps)), b = Math.min(file.size, Math.ceil((seg.t + len) * bps));
+        return { blob: file.slice(a, b, 'audio/mpeg'), mime: 'audio/mp3', sec: len };
+      },
+    };
+  }
+
+  async function prepareRemote(file, resume) {
+    const total = await audioDuration(file);
+    if (!total) throw new Error('녹음 파일 길이를 읽지 못했어요. 음성 메모(m4a)나 mp3 파일인지 확인해 주세요.');
+    flow(0, 'active', '녹음 파일 올리는 중 0%', '와이파이에서 화면을 켜 둔 채로 기다려 주세요');
+    const ref = await Gemini.uploadFile(cfg, file, (p) => flow(0, 'active', `녹음 파일 올리는 중 ${Math.round(p * 100)}%`, p >= 1 ? 'Gemini가 파일을 처리하고 있어요' : '와이파이에서 화면을 켜 둔 채로 기다려 주세요'));
+    if (!resume) planSegments(total, REMOTE_SEG_SEC);
+    fileJob = { sig: sigOf(file), makeSource: (seg) => ({ remote: ref, from: seg.t, to: seg.t + (seg.len || REMOTE_SEG_SEC) }) };
+  }
+
+  async function prepareDecoded(file, resume) {
+    let audio;
+    try {
+      const buf = await file.arrayBuffer();
+      const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      const octx = new OAC(1, TARGET_RATE, TARGET_RATE); // 16kHz로 바로 디코딩해 메모리를 아낀다
+      audio = await new Promise((res, rej) => { const p = octx.decodeAudioData(buf, res, rej); if (p?.then) p.then(res, rej); });
+    } catch (e) {
+      return prepareRemote(file, resume); // 여기서 못 열면 Gemini에 파일째 올려 본다
     }
-    await runFileSegments(list);
+    const rate = audio.sampleRate;
+    const ch = audio.getChannelData(0);
+    if (!resume) {
+      planSegments(audio.duration, FILE_SEG_SEC);
+      // 거의 무음인 구간은 빼 둔다
+      S.segments = S.segments.filter((s) => {
+        if (s.status !== 'pending') return true;
+        return rms(ch.subarray(Math.floor(s.t * rate), Math.floor((s.t + s.len) * rate))) >= 0.002;
+      });
+    }
+    fileJob = {
+      sig: sigOf(file),
+      makeSource: (seg) => {
+        const slice = ch.subarray(Math.floor(seg.t * rate), Math.floor((seg.t + (seg.len || FILE_SEG_SEC)) * rate));
+        return rate === TARGET_RATE ? encodeWav(slice) : encodeWav(downsample([slice], rate));
+      },
+    };
   }
 
   async function runFileSegments(list) {
     renderSegments(); persist();
     let done = 0;
-    flow(0, 'done', '녹음 파일 올리기 완료');
+    flow(0, 'done', '녹음 파일 준비 완료');
     const update = () => flow(1, 'active', `받아쓰기 ${done}/${list.length}`, '화면을 켜 둔 채로 기다려 주세요');
     update();
     // 3개씩 동시에 받아쓰기
@@ -418,16 +464,38 @@
       while (next < list.length) {
         const seg = list[next++];
         await transcribeSeg(seg, '');
-        done++; update(); renderSegments();
+        done++; update(); renderSegments(); persist();
       }
     };
     await Promise.all([worker(), worker(), worker()]);
     persist();
-    const failed = list.filter((s) => s.status === 'failed').length;
-    if (failed) toast(`${failed}개 구간을 받아쓰지 못했어요. 받아쓰기 탭에서 '다시'를 눌러주세요.`, 5000);
     renderAll();
+    const failed = S.segments.filter((s) => s.status === 'failed').length;
+    if (failed) {
+      flow(1, 'error', `받아쓰기 ${failed}구간 실패`, "받아쓰기 탭의 '실패한 구간 다시'를 누르세요. 앱을 껐다 켰다면 같은 파일을 다시 고르면 실패한 구간만 이어서 해요.");
+      return;
+    }
     await makeFinal();
   }
+
+  // 실패한 구간만 모아서 다시
+  async function retryFailed() {
+    const failed = S.segments.filter((s) => s.status === 'failed');
+    if (!failed.length) return;
+    const canFile = fileJob && S.fileSig === fileJob.sig;
+    const live = failed.filter((s) => wavs.has(s.i) && !canFile);
+    if (canFile) {
+      failed.forEach((s) => { s.status = 'pending'; if (!wavs.has(s.i)) wavs.set(s.i, () => fileJob.makeSource(s)); });
+      await runFileSegments(failed);
+    } else if (live.length) {
+      live.forEach((s) => { s.status = 'pending'; enqueue(s); });
+      renderSegments();
+    } else {
+      toast('원본 소리가 남아 있지 않아요. 같은 녹음 파일을 다시 골라주세요.', 5000);
+      $('fileInput').click();
+    }
+  }
+  $('btnRetryFailed').addEventListener('click', retryFailed);
 
   $('btnFile').addEventListener('click', () => $('fileInput').click());
   $('fileInput').addEventListener('change', (e) => {
