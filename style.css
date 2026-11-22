@@ -83,6 +83,8 @@ textarea { line-height: 1.7; }
 .seg .t { font-size: 12px; color: var(--muted); }
 .seg.pending { color: var(--muted); }
 .seg.failed .t { color: var(--rec); }
+.seg.gap { color: var(--rec); font-size: 13px; }
+.file-btn { width: 100%; margin-top: 6px; }
 .live-block { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
 .live-block h3 { margin: 0 0 6px; font-size: 15px; }
 .live-block ul { margin: 0; padding-left: 18px; }

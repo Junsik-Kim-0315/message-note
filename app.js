@@ -64,7 +64,7 @@
   }));
 
   // ---------- 받아쓰기 목록 ----------
-  const transcriptText = () => S.segments.filter((s) => s.status === 'done' && s.text).map((s) => s.text).join('\n');
+  const transcriptText = () => S.segments.filter((s) => (s.status === 'done' || s.status === 'gap') && s.text).map((s) => s.text).join('\n');
 
   function renderSegments() {
     $('trEmpty').hidden = S.segments.length > 0;
@@ -107,42 +107,49 @@
     return new Blob([buf], { type: 'audio/wav' });
   }
 
-  // ---------- 받아쓰기 대기열 (순서대로) ----------
+  // ---------- 받아쓰기 ----------
+  async function transcribeSeg(seg, prevTail) {
+    let wav = wavs.get(seg.i);
+    if (typeof wav === 'function') wav = wav();
+    if (!wav) { seg.status = 'failed'; return; }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        seg.text = await Gemini.transcribe(cfg, wav, prevTail);
+        seg.status = 'done'; wavs.delete(seg.i);
+        return;
+      } catch (e) {
+        if (attempt === 2) { seg.status = 'failed'; toast(e.message); }
+        else await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+      }
+    }
+  }
+
+  // 실시간 녹음은 순서대로 (앞 구간 끝부분을 문맥으로 넘김)
   let queue = Promise.resolve();
   function enqueue(seg) {
     queue = queue.then(async () => {
-      const wav = wavs.get(seg.i);
-      if (!wav) { seg.status = 'failed'; return; }
       const prev = S.segments.filter((s) => s.i < seg.i && s.status === 'done' && s.text).pop();
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const text = await Gemini.transcribe(cfg, wav, prev ? prev.text.slice(-120) : '');
-          seg.text = text; seg.status = 'done'; wavs.delete(seg.i);
-          break;
-        } catch (e) {
-          if (attempt === 2) { seg.status = 'failed'; toast(e.message); }
-          else await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-        }
-      }
+      await transcribeSeg(seg, prev ? prev.text.slice(-120) : '');
       renderSegments(); persist();
     });
     return queue;
   }
 
   // ---------- 녹음 ----------
-  let rec = null; // { stream, ctx, proc, chunks, len, startedAt, segStart }
+  // rec: 녹음 세션 / rec.cap: 지금 열려 있는 마이크(화면이 꺼지면 아이폰이 끊을 수 있어 다시 연다)
+  let rec = null;
   let tick = null, liveTimer = null, wakeLock = null;
   let segCounter = S.segments.reduce((m, s) => Math.max(m, s.i + 1), 0);
 
   async function lockScreen() {
-    try { if ('wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); } } catch (e) {}
+    try { if ('wakeLock' in navigator && document.visibilityState === 'visible') { wakeLock = await navigator.wakeLock.request('screen'); } } catch (e) {}
   }
 
   function flushSegment(force) {
-    if (!rec || !rec.len) return;
-    const minLen = rec.ctx.sampleRate * (force ? 2 : SEG_SEC);
+    if (!rec || !rec.len || !rec.rate) return;
+    const minLen = rec.rate * (force ? 2 : SEG_SEC);
     if (rec.len < minLen) { if (force) { rec.chunks = []; rec.len = 0; } return; }
-    const samples = downsample(rec.chunks, rec.ctx.sampleRate);
+    const samples = downsample(rec.chunks, rec.rate);
     const t = rec.segStart;
     rec.chunks = []; rec.len = 0; rec.segStart = elapsedNow();
     if (rms(samples) < 0.002) return; // 거의 무음이면 건너뜀
@@ -155,40 +162,108 @@
 
   const elapsedNow = () => S.elapsed + (rec ? (Date.now() - rec.startedAt) / 1000 : 0);
 
-  async function startRec() {
-    if (!cfg.key) { openSettings(); toast('먼저 Gemini API 키를 넣어주세요.'); return; }
-    if (S.final || S.segments.length) {
-      if (!confirm('이전 녹음 내용이 있어요. 지우고 새로 시작할까요?\n(취소하면 이어서 녹음해요)')) {
-        /* 이어서 녹음 */
-      } else {
-        S = emptySession(); S.meta = { date: today() }; wavs.clear(); pdfCache = null; segCounter = 0;
-        renderAll();
-      }
-    }
-    if (!S.meta.date) S.meta.date = today();
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
-    } catch (e) { toast('마이크를 쓸 수 없어요. Safari 설정에서 마이크를 허용해 주세요.', 4000); return; }
+  async function openCapture() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     await ctx.resume();
     const src = ctx.createMediaStreamSource(stream);
     const proc = ctx.createScriptProcessor(4096, 1, 1);
-    rec = { stream, ctx, src, proc, chunks: [], len: 0, startedAt: Date.now(), segStart: S.elapsed };
+    const cap = { stream, ctx, src, proc, lastAudio: Date.now() };
     proc.onaudioprocess = (e) => {
-      if (!rec) return;
+      if (!rec || rec.cap !== cap) return;
+      cap.lastAudio = Date.now();
       rec.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
       rec.len += e.inputBuffer.length;
       if (rec.len >= ctx.sampleRate * SEG_SEC) flushSegment(false);
     };
     src.connect(proc); proc.connect(ctx.destination);
+    stream.getAudioTracks().forEach((t) => {
+      t.addEventListener('ended', () => { if (rec?.cap === cap) markDropped(); });
+      t.addEventListener('mute', () => { if (rec?.cap === cap) markDropped(); });
+    });
+    if (rec) { rec.cap = cap; rec.rate = ctx.sampleRate; }
+    return cap;
+  }
+
+  async function closeCapture(cap) {
+    if (!cap) return;
+    try { cap.proc.disconnect(); cap.src.disconnect(); } catch (e) {}
+    cap.stream.getTracks().forEach((t) => t.stop());
+    try { await cap.ctx.close(); } catch (e) {}
+  }
+
+  // 아이폰이 마이크를 끊은 시점 기록
+  function markDropped() {
+    if (!rec || rec.droppedAt) return;
+    flushSegment(true);
+    rec.droppedAt = elapsedNow();
+  }
+
+  // 화면이 다시 켜지면 마이크를 다시 연다
+  let resuming = false;
+  async function resumeCapture() {
+    if (!rec || resuming) return;
+    resuming = true;
+    try {
+      const cap = rec.cap;
+      const track = cap?.stream.getAudioTracks()[0];
+      const alive = cap && track && track.readyState === 'live' && !track.muted && cap.ctx.state === 'running' && Date.now() - cap.lastAudio < 3000;
+      if (alive && !rec.droppedAt) { lockScreen(); return; }
+      if (cap?.ctx.state === 'suspended' && track?.readyState === 'live') {
+        try { await cap.ctx.resume(); } catch (e) {}
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      const t2 = rec.cap?.stream.getAudioTracks()[0];
+      const ok = rec.cap && t2 && t2.readyState === 'live' && !t2.muted && rec.cap.ctx.state === 'running' && Date.now() - rec.cap.lastAudio < 1500;
+      if (!ok) {
+        flushSegment(true);
+        await closeCapture(rec.cap);
+        rec.cap = null;
+        await openCapture();
+      }
+      const from = rec.droppedAt ?? rec.hiddenAt;
+      const to = elapsedNow();
+      if (from != null && to - from > 5) {
+        S.segments.push({ i: segCounter++, t: from, status: 'gap', text: `(${fmt(from)}~${fmt(to)} 화면이 꺼져 녹음되지 않음)` });
+        renderSegments(); persist();
+        toast('화면이 꺼진 동안 녹음이 멈췄어서 다시 이어서 녹음해요.', 4000);
+      }
+      rec.droppedAt = null; rec.hiddenAt = null;
+      rec.segStart = elapsedNow(); rec.chunks = []; rec.len = 0;
+      lockScreen();
+    } catch (e) {
+      toast('마이크를 다시 열지 못했어요. "녹음 끝내기" 후 "이어서 녹음"을 눌러주세요.', 5000);
+    } finally { resuming = false; }
+  }
+
+  async function startRec() {
+    if (!cfg.key) { openSettings(); toast('먼저 Gemini API 키를 넣어주세요.'); return; }
+    if (!confirmNew()) return;
+    if (!S.meta.date) S.meta.date = today();
+    rec = { cap: null, rate: 0, chunks: [], len: 0, startedAt: Date.now(), segStart: S.elapsed, droppedAt: null, hiddenAt: null };
+    try { await openCapture(); }
+    catch (e) { rec = null; toast('마이크를 쓸 수 없어요. Safari 설정에서 마이크를 허용해 주세요.', 4000); return; }
     lockScreen();
     $('btnRec').classList.add('on'); $('recLabel').textContent = '녹음 끝내기';
     setStatus('녹음 중');
-    tick = setInterval(() => ($('timer').textContent = fmt(elapsedNow())), 500);
+    tick = setInterval(() => {
+      $('timer').textContent = fmt(elapsedNow());
+      // 화면은 켜져 있는데 소리가 안 들어오면 다시 연다
+      if (rec?.cap && document.visibilityState === 'visible' && (Date.now() - rec.cap.lastAudio > 4000 || rec.cap.stream.getAudioTracks()[0]?.readyState !== 'live')) resumeCapture();
+    }, 1000);
     liveTimer = setInterval(runLive, Math.max(1, Number(cfg.liveMin) || 3) * 60000);
     showTab('live');
     persist();
+  }
+
+  // 이전 내용이 있으면 새로 시작할지 묻는다. false면 중단
+  function confirmNew() {
+    if (!(S.final || S.segments.length)) return true;
+    if (confirm('이전 내용이 있어요. 지우고 새로 시작할까요?\n(취소하면 이어서 진행해요)')) {
+      S = emptySession(); S.meta = { date: today() }; wavs.clear(); pdfCache = null; segCounter = 0; liveLen = 0;
+      renderAll();
+    }
+    return true;
   }
 
   async function stopRec() {
@@ -196,9 +271,7 @@
     flushSegment(true);
     S.elapsed = elapsedNow();
     const r = rec; rec = null;
-    try { r.proc.disconnect(); r.src.disconnect(); } catch (e) {}
-    r.stream.getTracks().forEach((t) => t.stop());
-    try { await r.ctx.close(); } catch (e) {}
+    await closeCapture(r.cap);
     clearInterval(tick); clearInterval(liveTimer);
     try { await wakeLock?.release(); } catch (e) {} wakeLock = null;
     $('btnRec').classList.remove('on'); $('recLabel').textContent = '이어서 녹음';
@@ -211,13 +284,90 @@
 
   $('btnRec').addEventListener('click', () => (rec ? stopRec() : startRec()));
 
-  document.addEventListener('visibilitychange', async () => {
-    if (document.visibilityState !== 'visible' || !rec) return;
-    if (rec.ctx.state !== 'running') {
-      try { await rec.ctx.resume(); } catch (e) {}
-      toast('화면이 꺼져 있던 동안은 녹음이 안 됐을 수 있어요.', 4000);
+  document.addEventListener('visibilitychange', () => {
+    if (!rec) return;
+    if (document.visibilityState === 'hidden') {
+      // 꺼지기 직전까지 녹음된 소리를 먼저 받아쓰기로 넘겨 둔다
+      flushSegment(true);
+      rec.hiddenAt = elapsedNow();
+      persist();
+    } else {
+      resumeCapture();
     }
+  });
+  window.addEventListener('pageshow', () => { if (rec) resumeCapture(); });
+  window.addEventListener('pagehide', () => { if (rec) { flushSegment(true); persist(); } });
+
+  // ---------- 녹음 파일로 정리 (음성 메모 등) ----------
+  const FILE_SEG_SEC = 60;
+  async function processFile(file) {
+    if (!cfg.key) { openSettings(); toast('먼저 Gemini API 키를 넣어주세요.'); return; }
+    if (rec) { toast('녹음 중에는 파일을 올릴 수 없어요.'); return; }
+    confirmNew();
+    if (!S.meta.date) {
+      const d = new Date(file.lastModified || Date.now());
+      S.meta.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    showTab('transcript');
+    setStatus('녹음 파일 여는 중');
     lockScreen();
+    let audio;
+    try {
+      const buf = await file.arrayBuffer();
+      const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      const octx = new OAC(1, TARGET_RATE, TARGET_RATE); // 16kHz로 바로 디코딩해 메모리를 아낀다
+      audio = await new Promise((res, rej) => { const p = octx.decodeAudioData(buf, res, rej); if (p?.then) p.then(res, rej); });
+    } catch (e) {
+      setStatus('대기 중');
+      toast('이 녹음 파일을 열 수 없어요. 음성 메모(m4a)나 mp3, wav 파일을 올려주세요.', 5000);
+      return;
+    }
+    const rate = audio.sampleRate;
+    const ch = audio.getChannelData(0);
+    const total = audio.duration;
+    S.elapsed = Math.max(S.elapsed || 0, total);
+    $('timer').textContent = fmt(total);
+    const offset = S.segments.length ? (S.segments[S.segments.length - 1].t + SEG_SEC) : 0;
+    const list = [];
+    for (let s = 0; s < ch.length; s += rate * FILE_SEG_SEC) {
+      const slice = ch.subarray(s, Math.min(ch.length, s + rate * FILE_SEG_SEC));
+      if (slice.length < rate * 2) continue;
+      const toWav = () => {
+        if (rate === TARGET_RATE) return encodeWav(slice);
+        return encodeWav(downsample([slice], rate));
+      };
+      if (rms(slice) < 0.002) continue;
+      const seg = { i: segCounter++, t: offset + s / rate, status: 'pending', text: '' };
+      wavs.set(seg.i, toWav);
+      S.segments.push(seg);
+      list.push(seg);
+    }
+    renderSegments(); persist();
+    let done = 0;
+    const update = () => setStatus(`파일 받아쓰기 ${done}/${list.length}`);
+    update();
+    // 3개씩 동시에 받아쓰기
+    let next = 0;
+    const worker = async () => {
+      while (next < list.length) {
+        const seg = list[next++];
+        await transcribeSeg(seg, '');
+        done++; update(); renderSegments();
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    persist();
+    const failed = list.filter((s) => s.status === 'failed').length;
+    if (failed) toast(`${failed}개 구간을 받아쓰지 못했어요. 받아쓰기 탭에서 '다시'를 눌러주세요.`, 5000);
+    renderAll();
+    await makeFinal();
+  }
+
+  $('btnFile').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (f) processFile(f);
   });
 
   // ---------- 실시간 정리 ----------
