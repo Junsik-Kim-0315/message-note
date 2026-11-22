@@ -88,11 +88,11 @@
       if (words.length < 2) return;
       el.className = '';
       el.textContent = '';
+      // 단어는 줄바꿈 없는 조각, 뒤 공백은 따로 같은 색 조각으로 둬서 공백에서만 줄이 바뀌게 한다
       words.forEach((w) => {
-        const sp = document.createElement('span');
-        sp.className = `${cls} piece`;
-        sp.textContent = w;
-        el.appendChild(sp);
+        const m = w.match(/^(\S*)(\s*)$/) || [w, w, ''];
+        if (m[1]) { const sp = document.createElement('span'); sp.className = `${cls} piece`; sp.textContent = m[1]; el.appendChild(sp); }
+        if (m[2]) { const gap = document.createElement('span'); gap.className = `${cls} gap`; gap.textContent = m[2]; el.appendChild(gap); }
       });
     });
   }

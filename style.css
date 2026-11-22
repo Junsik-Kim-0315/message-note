@@ -161,7 +161,8 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .page .m-r { background: #ffc9c4; color: #8f1d14; }
 .page .m-y { background: #fff0a0; color: inherit; }
 .page .m-v { color: #1d4fa8; }
-.page .piece { padding: 0; border-radius: 0; white-space: nowrap; } /* 조각 하나가 두 줄로 갈라지면 html2canvas가 큰 사각형으로 칠해 글자를 가린다 */
+.page .piece { padding: 0; border-radius: 0; white-space: nowrap; }
+.page .gap { padding: 0; border-radius: 0; } /* 조각 하나가 두 줄로 갈라지면 html2canvas가 큰 사각형으로 칠해 글자를 가린다 */
 .page h1 { font-family: "Noto Sans KR", sans-serif; font-weight: 900; font-size: 1.7em; line-height: 1.3; margin: 0 0 .2em; }
 .page h2 { font-family: "Noto Sans KR", sans-serif; font-weight: 700; font-size: 1.12em; margin: .9em 0 .35em; padding-bottom: .15em; border-bottom: 2px solid #1f5f45; color: #1f5f45; }
 .page h3 { font-family: "Noto Sans KR", sans-serif; font-weight: 700; font-size: 1em; margin: .6em 0 .15em; }
