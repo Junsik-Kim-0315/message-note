@@ -1,6 +1,7 @@
 // 최종 정리 JSON → A4 페이지들 → PDF
 (function () {
-  const { esc, mark } = window.Markup;
+  const { mark } = window.Markup;
+  const esc = (s) => window.Markup.esc(window.Markup.strip(s)); // 제목·태그 같은 칸에 표시 문법이 섞여 와도 기호가 보이지 않게
   const arr = (v) => (Array.isArray(v) ? v : v ? [v] : []);
   const paras = (list) => arr(list).map((p) => `<p>${mark(p)}</p>`);
   const bullets = (list, tag = 'ul') => {
