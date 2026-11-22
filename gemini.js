@@ -45,7 +45,11 @@
         const text = (cand.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
         if (!json) return text.trim();
         try { return parseJson(text); } catch (e) {
+          // 원인 확인용으로 마지막 깨진 응답을 휴대폰에 남겨 둔다
+          try { localStorage.setItem('mn_lastraw', JSON.stringify({ at: new Date().toISOString(), finish: cand.finishReason || '', len: text.length, head: text.slice(0, 3000), tail: text.slice(-3000) })); } catch (x) {}
           e.truncated = cand.finishReason === 'MAX_TOKENS';
+          e.finish = cand.finishReason || '';
+          e.badJson = true;
           throw e;
         }
       } catch (e) {
@@ -55,7 +59,19 @@
         clearTimeout(timer);
       }
     };
-    return send(true);
+    try {
+      return await send(true);
+    } catch (e) {
+      // JSON이 깨져 왔으면 한 번 더: 문법을 지키라는 말을 덧붙이고 온도를 낮춰 다시 요청
+      if (!e.badJson) throw e;
+      const note = `\n\n[중요] 앞선 응답의 JSON 문법이 깨졌습니다(${e.truncated ? '길이 초과로 잘림' : '형식 오류'}). 이번에는 올바른 JSON만 출력하세요. 문자열 안에서는 큰따옴표(") 대신 작은따옴표(')나 「」를 쓰고, 항목 사이 쉼표를 빠뜨리지 말고, 인용은 짧게 줄여 전체를 더 간결하게 쓰세요.`;
+      parts = parts.map((p, i) => (i === parts.length - 1 && p.text != null ? { text: p.text + note } : p));
+      temperature = 0;
+      try { return await send(true); } catch (e2) {
+        if (e2.badJson) e2.message = `정리 결과를 읽지 못했어요(${e2.truncated ? '응답이 너무 길어 잘림' : 'JSON 형식 오류'}${e2.finish && e2.finish !== 'STOP' ? `, ${e2.finish}` : ''}). 다시 시도해 주세요.`;
+        throw e2;
+      }
+    }
   }
 
   function parseJson(text) {
@@ -64,10 +80,48 @@
     const s0 = t.indexOf('{');
     const body = s0 >= 0 ? t.slice(s0) : t;
     try { const en = body.lastIndexOf('}'); if (en > 0) return JSON.parse(body.slice(0, en + 1)); } catch (e) {}
+    // 문자열 안의 따옴표가 이스케이프 안 됐거나 쉼표가 빠진 경우를 고쳐 본다
+    const loose = lenientJson(body);
+    try { const en = loose.lastIndexOf('}'); if (en > 0) return JSON.parse(loose.slice(0, en + 1)); } catch (e) {}
+    const fixedLoose = repairJson(loose);
+    if (fixedLoose) { try { return JSON.parse(fixedLoose); } catch (e) {} }
     // 응답이 중간에 잘린 경우: 마지막 완전한 값까지 남기고 열린 괄호를 닫아 살린다
     const fixed = repairJson(body);
     if (fixed) { try { return JSON.parse(fixed); } catch (e) {} }
     throw new Error('정리 결과를 읽지 못했어요(응답이 잘렸어요). 다시 시도해 주세요.');
+  }
+  // 느슨한 JSON 고치기: 문자열 안 따옴표 이스케이프, 빠진 쉼표 넣기, 끝 쉼표 빼기, 문자열 안 줄바꿈
+  function lenientJson(src) {
+    let out = '', inStr = false, esc = false;
+    const nextNon = (i) => { let j = i; while (j < src.length && /\s/.test(src[j])) j++; return [src[j], j]; };
+    let prevEnd = false; // 바로 앞이 값의 끝이었는지 (빠진 쉼표 판단)
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i];
+      if (inStr) {
+        if (esc) { esc = false; out += c; continue; }
+        if (c === '\\') { esc = true; out += c; continue; }
+        if (c === '\n') { out += '\\n'; continue; }
+        if (c === '"') {
+          const [n] = nextNon(i + 1);
+          if (n === undefined || n === ',' || n === '}' || n === ']' || n === ':') { inStr = false; prevEnd = true; out += c; }
+          else out += '\\"';
+          continue;
+        }
+        out += c; continue;
+      }
+      if (c === '"' || c === '{' || c === '[') { if (prevEnd) out += ','; prevEnd = false; if (c === '"') inStr = true; out += c; continue; }
+      if (c === ',') { const [n] = nextNon(i + 1); prevEnd = false; if (n === '}' || n === ']') continue; out += c; continue; }
+      if (c === '}' || c === ']') { prevEnd = true; out += c; continue; }
+      if (c === ':') { prevEnd = false; out += c; continue; }
+      if (/[0-9tfn\-]/.test(c) && !/\s/.test(c)) {
+        // 숫자·true·false·null 값
+        let j = i; while (j < src.length && /[0-9a-zA-Z.+\-]/.test(src[j])) j++;
+        if (prevEnd) out += ',';
+        out += src.slice(i, j); i = j - 1; prevEnd = true; continue;
+      }
+      out += c;
+    }
+    return out;
   }
   function repairJson(src) {
     const stack = []; let inStr = false, esc = false, lastSafe = -1;
@@ -286,7 +340,7 @@ ${profileText}
  "term_fixes": [{"wrong": "받아쓰기에 잘못 나온 말", "right": "바른 말"}]
 }
 대지는 설교자가 '첫째, 둘째'처럼 나눴으면 그대로, 아니면 내용 흐름에 따라 2~5개로 나누세요.
-분량: 원문 인용은 핵심 한 문장씩만 짧게, 같은 내용을 여러 필드에 되풀이하지 말고, 전체 JSON은 15,000자 이내로 쓰세요(설교가 90분 넘게 길어도).
+분량: 원문 인용은 핵심 한 문장씩만 짧게, 같은 내용을 여러 필드에 되풀이하지 말고, 전체 JSON은 15,000자 이내로 쓰세요(설교가 90분 넘게 길어도). 인용문 안에서는 큰따옴표(") 대신 작은따옴표(')나 「」를 쓰세요(JSON이 깨지지 않게).
 
 [받아쓰기 전체]
 ${transcript}`;
