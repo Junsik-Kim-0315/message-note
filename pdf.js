@@ -8,8 +8,8 @@
     return items.length ? `<${tag}>${items.map((x) => `<li>${mark(x)}</li>`).join('')}</${tag}>` : '';
   };
 
-  // 페이지 나누기를 위해 블록 단위(문단·제목)로 만든다
-  function buildBlocks(d) {
+  // 한 장에 담을 블록들. drop에 든 항목은 넣지 않는다 (넘칠 때 덜 중요한 것부터 뺌)
+  function buildBlocks(d, drop = new Set()) {
     const b = [];
     const meta = [
       d.date && `<b>${esc(d.date)}</b>`,
@@ -24,38 +24,35 @@
       <span><span class="m-y">노랑</span> 중요한 문장</span>
       <span><span class="m-t">굵게+밑줄</span> 핵심 용어</span>
       <span><span class="m-v">파랑</span> 성경 구절</span></div>`);
-    b.push(`<div class="summary-box"><div class="one">${mark(d.one_line || '')}</div>${bullets(d.summary)}</div>`);
+    b.push(`<div class="summary-box"><div class="one">${mark(d.one_line || '')}</div>${drop.has('summary') ? '' : bullets(d.summary)}</div>`);
     const tags = arr(d.tags);
-    if (tags.length || d.category) {
-      b.push(`<div class="tagline">${d.category ? `분류 <b>${esc(d.category)}</b> · ` : ''}${tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>`);
+    if (!drop.has('tags') && (tags.length || d.category || arr(d.scriptures).length)) {
+      b.push(`<div class="tagline">${d.category ? `분류 <b>${esc(d.category)}</b> · ` : ''}${tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}${arr(d.scriptures).length ? ` <span class="m-v">${arr(d.scriptures).map(esc).join(', ')}</span>` : ''}</div>`);
     }
-    if (arr(d.scriptures).length) b.push(`<div class="verses">인용 구절: ${arr(d.scriptures).map(esc).join(', ')}</div>`);
-
     b.push('<h2>서론</h2>');
     b.push(...paras(d.intro));
     b.push('<h2>본론</h2>');
     arr(d.body).forEach((sec, i) => {
-      b.push(`<h3>${esc(sec.heading || `대지 ${i + 1}`)}</h3>`);
-      if (arr(sec.verses).length) b.push(`<div class="verses">${arr(sec.verses).map(esc).join(', ')}</div>`);
+      const v = arr(sec.verses).length ? ` <span class="verses">(${arr(sec.verses).map(esc).join(', ')})</span>` : '';
+      b.push(`<h3>${esc(sec.heading || `대지 ${i + 1}`)}${v}</h3>`);
       b.push(...paras(sec.paragraphs));
     });
     b.push('<h2>결론</h2>');
     b.push(...paras(d.conclusion));
 
     const pv = d.perspectives || {};
-    if (pv.context || pv.theology || pv.application) {
-      b.push('<h2>여러 관점에서 보기</h2>');
-      if (pv.context) { b.push('<h3>본문의 문맥과 배경</h3>'); b.push(...paras(pv.context)); }
-      if (pv.theology) { b.push('<h3>신학적 메시지</h3>'); b.push(...paras(pv.theology)); }
-      if (pv.application) { b.push('<h3>삶의 적용</h3>'); b.push(...paras(pv.application)); }
+    const one = (x) => arr(x).join(' ');
+    const pvItems = [
+      !drop.has('context') && pv.context && `<li><span class="lbl">문맥</span> ${mark(one(pv.context))}</li>`,
+      !drop.has('theology') && pv.theology && `<li><span class="lbl">신학</span> ${mark(one(pv.theology))}</li>`,
+      pv.application && `<li><span class="lbl">적용</span> ${mark(one(pv.application))}</li>`,
+    ].filter(Boolean);
+    if (pvItems.length) b.push(`<h2>여러 관점</h2><ul>${pvItems.join('')}</ul>`);
+    if (!drop.has('terms') && arr(d.key_terms).length) {
+      b.push(`<p><span class="lbl">핵심 용어</span> ${arr(d.key_terms).map((t) => `<span class="m-t">${esc(t.term)}</span> ${mark(t.meaning)}`).join(' · ')}</p>`);
     }
-    if (arr(d.key_terms).length) {
-      b.push('<h2>핵심 용어</h2>');
-      arr(d.key_terms).forEach((t) => b.push(`<dl class="terms"><dt>${esc(t.term)}</dt><dd>${mark(t.meaning)}</dd></dl>`));
-    }
-    if (arr(d.questions).length) {
-      b.push('<h2>묵상과 적용 질문</h2>');
-      b.push(bullets(d.questions, 'ol'));
+    if (!drop.has('questions') && arr(d.questions).length) {
+      b.push(`<h2>묵상 질문</h2>${bullets(drop.has('questions2') ? arr(d.questions).slice(0, 2) : d.questions, 'ol')}`);
     }
     return b;
   }
@@ -99,35 +96,27 @@
     });
   }
 
-  // 블록을 A4 페이지에 차례로 채운다
+  // A4 한 장에 맞춘다: 글자를 조금씩 줄이고, 그래도 넘치면 덜 중요한 항목부터 뺀다
+  const SIZES = [14, 13.5, 13, 12.5, 12, 11.5, 11];
+  const DROPS = [[], ['terms'], ['terms', 'questions2'], ['terms', 'questions2', 'context'],
+    ['terms', 'questions', 'context', 'theology'], ['terms', 'questions', 'context', 'theology', 'tags', 'summary']];
   async function layout(d, stage) {
     await ensureFonts();
-    stage.innerHTML = '';
     const foot = `${d.date || ''} ${d.title || ''}`.trim();
-    const blocks = buildBlocks(d);
-    let page = newPage(stage, foot);
-    let content = page.querySelector('.content');
-    for (const html of blocks) {
+    for (const drop of DROPS) {
+      stage.innerHTML = '';
+      const page = newPage(stage, foot);
+      const content = page.querySelector('.content');
       const tmp = document.createElement('div');
-      tmp.innerHTML = html;
+      tmp.innerHTML = buildBlocks(d, new Set(drop)).join('');
       splitMarks(tmp);
-      const nodes = [...tmp.childNodes];
-      nodes.forEach((n) => content.appendChild(n));
-      if (content.scrollHeight > content.clientHeight + 1 && content.childNodes.length > nodes.length) {
-        nodes.forEach((n) => n.remove());
-        // 제목만 페이지 끝에 남지 않게 함께 넘긴다
-        const carry = [];
-        const last = content.lastElementChild;
-        if (last && /^H[23]$/.test(last.tagName)) carry.push(last);
-        page = newPage(stage, foot);
-        content = page.querySelector('.content');
-        carry.forEach((n) => content.appendChild(n));
-        nodes.forEach((n) => content.appendChild(n));
+      [...tmp.childNodes].forEach((n) => content.appendChild(n));
+      for (const s of SIZES) {
+        page.style.fontSize = `${s}px`;
+        if (content.scrollHeight <= content.clientHeight + 1) return [page];
       }
     }
-    const pages = [...stage.querySelectorAll('.page')];
-    pages.forEach((p, i) => (p.querySelector('.pn').textContent = `${i + 1} / ${pages.length}`));
-    return pages;
+    return [...stage.querySelectorAll('.page')]; // 마지막 단계(가장 작게)로 남긴다
   }
 
   async function toPdfBlob(d, stage) {
