@@ -180,7 +180,24 @@
     return [...m].sort((a, b) => b[1] - a[1]).slice(0, n);
   }
 
+  // 설교자가 직접 핵심을 밝혔을 가능성이 높은 문장 후보: '오늘 메시지의 핵심', '세 가지 비밀', '오늘 하나님이 말씀하신 거예요', '이 비밀 하나만' 등
+  // (2026-11-22 1부는 '핵심'이라는 말 없이 '…몸에 성막을 지으라고 오늘 하나님이 말씀하신 거예요'로 밝혀 노트가 놓쳤다)
+  function coreCands(text) {
+    const sents = String(text || '').replace(/\s+/g, ' ').split(/(?<=[.?!])\s+/);
+    const cues = [[/(오늘\s*)?(메시지|말씀)의\s*핵심/, 5], [/핵심입니다|핵심이에요/, 4], [/(세|두|네)\s*가지\s*비밀/, 4], [/오늘\s*.{0,60}(말씀하신|하신|주신)\s*거예요/, 3], [/이\s*비밀\s*하나만|이\s*비밀을\s*알아야/, 3], [/^그래서\s*오늘[,\s]/, 2]];
+    const out = [];
+    sents.forEach((s, i) => {
+      for (const [re, w] of cues) {
+        if (!re.test(s)) continue;
+        let t = s.trim(); if (t.length < 25 && sents[i - 1]) t = `${sents[i - 1].trim()} ${t}`;
+        out.push({ score: w, at: i / (sents.length || 1), text: t.slice(0, 260) });
+        break;
+      }
+    });
+    return out.sort((a, b) => b.score - a.score || b.at - a.at).slice(0, 6);
+  }
+
   // 정리할 때 반드시 살릴 설교자 핵심 어휘를 넘긴다
   const vocabOf = (p) => (p?.vocab || []).map((v) => String(v).split(/[(]/)[0].trim());
-  window.Learn = { repeated, signals, vocabOf, load, merge, save, toText, termsText, toHtml, keyOf, clean };
+  window.Learn = { coreCands, repeated, signals, vocabOf, load, merge, save, toText, termsText, toHtml, keyOf, clean };
 })();

@@ -325,7 +325,7 @@ ${window.MN_SIGNALS}
 6-1. 그리스도 쪽도 똑같이 빠짐없이: 그리스도(예수는 그리스도, 여자의 후손), 복음, 영적 싸움, 재창조(죽을 몸도 살리심)에 대한 설교자의 핵심 문장을 christ_side에 원문 그대로 담으세요. 마귀 쪽만 많고 그리스도 쪽이 빠지면 잘못된 노트입니다.
 6-2. 이번 본문과 관련된 핵심 언어를 text_keys에 뽑으세요. 본문 말씀에서 나왔거나 설교자가 본문을 풀며 거듭 쓴 말입니다(예: 출 25:1-9 설교라면 성막, 예물, 헌신, 유턴, 정체성). 설교마다 다르며, 정리본에 하나도 빠지지 않고 들어갑니다. 중요도는 (1) 반복 횟수(여러 번 되풀이할수록 중요)와 (2) 문맥상 강조(‘진짜’, ‘꼭’, ‘반드시’, ‘제발’, ‘이 비밀을 알아야 돼요’, 같은 말을 연달아 반복하거나 선포함, 질문하고 스스로 답함, ‘아멘’을 받아냄)로 판단해 weight(1~3)로 매기고 중요한 순서로 쓰세요. 설교자가 힘줘 말한 핵심 문장은 emphasized에 원문 그대로 담으세요.
 6. 마귀·사단·사탄·뱀·귀신·흑암·저주·참소에 관한 말과 구절(요 8:44, 요일 3:8, 창 3:15 등), '깨뜨려라·내어쫓아라·박살 내라·결박하라·떠나가라·~할지어다' 같은 대적·선포 기도는 하나도 빠뜨리지 말고 spiritual_warfare에 원문 그대로(오타만 고쳐) 담으세요. 이 설교자에게는 매우 중요한 주제입니다.
-6-3. 설교자가 '오늘 메시지의 핵심입니다', '세 가지 비밀', '첫째·둘째'처럼 직접 핵심이나 요점을 밝힌 곳을 반드시 찾아 stated_core, stated_points에 원문 그대로 담으세요(끝부분이나 마무리 기도 직전에 나오는 경우가 많습니다).
+6-3. 설교자가 '오늘 메시지의 핵심입니다', '세 가지 비밀', '첫째·둘째'처럼 직접 핵심이나 요점을 밝힌 곳을 반드시 찾아 stated_core, stated_points에 원문 그대로 담으세요(끝부분이나 마무리 기도 직전에 나오는 경우가 많습니다). '핵심'이라는 말이 없어도 '…하라고 오늘 하나님이 말씀하신 거예요', '오늘 이 비밀 하나만 깨달으면 끝난 거예요'처럼 오늘 말씀의 요지를 못 박는 문장이면 stated_core입니다. stated_core를 비워 두지 마세요.${(window.MN_CORE_CANDS || []).length ? `\n   받아쓰기에서 찾은 후보 문장(앱이 찾음, 이 중 오늘 말씀의 요지를 가장 잘 담은 것을 고르세요): ${window.MN_CORE_CANDS.map((c) => `「${c.text}」`).join(' / ')}` : ''}
 7. 설교는 언제나 그리스도와 마귀의 대립과 싸움입니다. 그리스도 쪽(복음, 창 3:15 여자의 후손, 영적인 것, 영적 싸움)과 마귀 쪽(사단, 요 8:44, 육신, 뱀)이 이번 설교에서 각각 무엇으로 나타나는지 찾아 contrast에 담으세요. 예(출 25:1-9): 내 몸에 하나님의 성막을 지으라(그리스도) ↔ 짓지 못하게 완악하고 딱딱하게, 육신적으로만 살게 만드는 마귀의 역사를 깨뜨리라(마귀). 각 대지가 이 싸움의 어느 쪽을 말하는지도 보세요.
 8. 이 설교의 구조적 특징(설교 시작·끝을 알리는 말, 대지를 나누는 표현, 예화·적용·마무리 방식)과 음성인식이 잘못 받아쓴 말(사람 이름, 성경 이름, 교회 용어)을 함께 분석하세요. 다음 설교를 더 잘 정리하기 위한 학습 자료로 쌓입니다.
 ${profileText ? `
@@ -559,6 +559,12 @@ ${transcript}`;
     onStep?.(1);
     const notes = await sermonNotes(cfg, meta, transcript, profileText);
     Debug.log('notes', { notes });
+    // 노트가 설교자 핵심을 비워 두면 앱이 찾은 후보 중 주제어가 든 것으로 채운다
+    if (!String(notes.stated_core || '').trim() && (window.MN_CORE_CANDS || []).length) {
+      const topW = (window.MN_REPEATED || []).slice(0, 3).map(([w]) => w).concat(notes.central_theme ? [String(notes.central_theme)] : []);
+      const best = [...window.MN_CORE_CANDS].map((c) => ({ ...c, s: c.score + (topW.some((w) => c.text.includes(w)) ? 2 : 0) + (c.text.length >= 40 ? 1 : 0) })).sort((a, b) => b.s - a.s)[0];
+      if (best) { notes.stated_core = best.text; Debug.log('stated-core-fallback', { picked: best.text, candidates: window.MN_CORE_CANDS }); }
+    }
     // 정리본의 주인공: 노트의 중심 주제 → 가장 무거운 본문 핵심어 → 사용자가 적은 제목의 첫 말
     const theme = String(notes.central_theme || [...(notes.text_keys || [])].sort((a, b) => (b.weight || 0) - (a.weight || 0))[0]?.key || (meta.title || '').split(/[\s,·]/)[0] || '').trim();
     // 상시 축(그리스도·영적 싸움·재창조)과 이번 본문 핵심어 가운데 받아쓰기에 실제로 나온 말은 정리본에서 빠지지 않게 목록으로 넘긴다
@@ -626,7 +632,7 @@ ${JSON.stringify(notes, null, 1)}`;
     let out = doc;
     let check = checkDoc(out, notes, theme, meta);
     Debug.log('check', { round: 0, theme, mustKeys: counted, check: check.map(({ key, ok, detail }) => ({ key, ok, detail })) });
-    for (let round = 0; round < 2 && check.some((c) => !c.ok); round++) {
+    for (let round = 0; round < 3 && check.some((c) => !c.ok); round++) {
       onStep?.(3);
       const miss = check.filter((c) => !c.ok);
       try {

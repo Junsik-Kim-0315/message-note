@@ -33,8 +33,14 @@
     }
     segs.push([depth ? 1 : 0, buf]);
     let n = 0;
-    const out = segs.map(([inMark, t]) => {
+    const out = segs.map(([inMark, t], si) => {
       if (inMark || !DEVIL.test(t)) return t;
+      // 바로 앞 표시에 붙은 조사('…]]으로 성전을')는 그대로 두고 그 뒤부터 본다
+      if (si > 0 && segs[si - 1][0] && /^[^\s.,!?]/.test(t)) {
+        const k = t.search(/[\s.,!?]/);
+        if (k > 0) { const [o, m] = autoRed(t.slice(k)); n += m; return t.slice(0, k) + o; }
+        return t;
+      }
       // 구절 단위(문장부호 사이)로 나눠 마귀 관련 말이 든 구절만 감싼다
       return t.split(/([.!?;,·]\s*|\s—\s|\s-\s|\(|\))/).map((part) => {
         if (!part || !DEVIL.test(part) || part.trim().length < 2) return part;
