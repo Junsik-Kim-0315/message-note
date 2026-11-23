@@ -24,6 +24,17 @@
   const DEVIL = /마귀|사단|사탄|뱀|귀신|흑암|저주|참소|요\s?8:44|요한복음 8장 44절|요일\s?3:8|결박|떠나갈지어다|떠나가라|무너질지어다|깨어질지어다|부서질지어다|박살|광명한 천사|세상 신|악한 영|불화살|원수의 능력|어둠의 권세|정사와 권세/;
   // 이 설교에서 마귀 쪽으로 진단된 말(노트의 break_keys, 예: 육신적 무능·완악함)도 빨강 대상에 넣는다
   const isDevil = (t) => DEVIL.test(t) || (window.MN_BREAK_KEYS || []).some((k) => k && k.length >= 2 && String(t).replace(/\s+/g, '').includes(k));
+  // 앱이 스스로 칠하는 빨강은 '마귀'라는 낱말만 보고 칠하지 않는다(사용자 기준: 핵심과 연관·대조되고 흐름에 맞는 곳에만).
+  // ① 대적 선포(결박·떠나가라·~할지어다·박살, 요 8:44) ② 이 설교에서 막는 것으로 진단된 말(break_keys)
+  // ③ 마귀 쪽 낱말 + 노트가 문맥으로 뽑은 마귀 쪽 내용(설교자의 대적 발언·막는 것·대조의 반대쪽)의 핵심 낱말이 함께 있을 때만
+  const DECL = /결박|떠나갈지어다|떠나가라|무너질지어다|깨어질지어다|부서질지어다|박살|요\s?8:44|요한복음 8장 44절|요일\s?3:8/;
+  const breakHit = (t) => (window.MN_BREAK_KEYS || []).some((k) => k && k.length >= 2 && String(t).replace(/\s+/g, '').includes(k));
+  const ctxRed = (t) => {
+    const ctx = window.MN_RED_CTX;
+    if (!Array.isArray(ctx)) return isDevil(t); // 노트가 없을 때(실시간 정리 등)는 예전처럼
+    const z = String(t).replace(/\s+/g, '');
+    return DECL.test(t) || breakHit(t) || (DEVIL.test(t) && ctx.some((w) => z.includes(w)));
+  };
   function autoRed(src) {
     const s = fix(src);
     // 깊이 0 구간으로 나눈다
@@ -36,7 +47,7 @@
     segs.push([depth ? 1 : 0, buf]);
     let n = 0;
     const out = segs.map(([inMark, t], si) => {
-      if (inMark || !isDevil(t)) return t;
+      if (inMark || !ctxRed(t)) return t;
       // 바로 앞 표시에 붙은 조사('…]]으로 성전을')는 그대로 두고 그 뒤부터 본다
       if (si > 0 && segs[si - 1][0] && /^[^\s.,!?]/.test(t)) {
         // '…]]할 때 세상 신의' 처럼 앞말에 매인 '때·것·수' 같은 말까지 건너뛴다
@@ -47,7 +58,7 @@
       }
       // 구절 단위(문장부호 사이)로 나눠 마귀 관련 말이 든 구절만 감싼다
       return t.split(/([.!?;,·]\s*|\s—\s|\s-\s|\(|\))/).map((part) => {
-        if (!part || !isDevil(part) || part.trim().length < 2) return part;
+        if (!part || !ctxRed(part) || part.trim().length < 2) return part;
         const lead = part.match(/^[\s"'“”‘’「」]*/)[0], tail = part.match(/[\s"'“”‘’「」]*$/)[0]; // 따옴표는 빨강 밖에
         if (part.length - lead.length - tail.length < 2) return part;
         n++;
@@ -90,5 +101,5 @@
     });
     return [n ? joinRed(out) : String(src || ''), n];
   }
-  window.Markup = { esc, mark, strip, autoRed, trimRed };
+  window.Markup = { esc, mark, strip, autoRed, trimRed, isDevil };
 })();
