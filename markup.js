@@ -22,6 +22,8 @@
   // 빨강 자동 보충: 표시 밖(바깥 깊이 0)에 마귀·사단 관련 말이 남아 있으면 그 말이 든 구절을 [[r|…]]로 감싼다.
   // 모델이 '사단'이 직접 나온 곳에만 빨강을 칠하고 저주·참소·흑암·결박 같은 말은 놓치는 일이 잦아서 앱이 마무리한다.
   const DEVIL = /마귀|사단|사탄|뱀|귀신|흑암|저주|참소|요\s?8:44|요한복음 8장 44절|요일\s?3:8|결박|떠나갈지어다|떠나가라|무너질지어다|깨어질지어다|부서질지어다|박살|광명한 천사|세상 신|악한 영|불화살|원수의 능력|어둠의 권세|정사와 권세/;
+  // 이 설교에서 마귀 쪽으로 진단된 말(노트의 break_keys, 예: 육신적 무능·완악함)도 빨강 대상에 넣는다
+  const isDevil = (t) => DEVIL.test(t) || (window.MN_BREAK_KEYS || []).some((k) => k && k.length >= 2 && String(t).replace(/\s+/g, '').includes(k));
   function autoRed(src) {
     const s = fix(src);
     // 깊이 0 구간으로 나눈다
@@ -34,7 +36,7 @@
     segs.push([depth ? 1 : 0, buf]);
     let n = 0;
     const out = segs.map(([inMark, t], si) => {
-      if (inMark || !DEVIL.test(t)) return t;
+      if (inMark || !isDevil(t)) return t;
       // 바로 앞 표시에 붙은 조사('…]]으로 성전을')는 그대로 두고 그 뒤부터 본다
       if (si > 0 && segs[si - 1][0] && /^[^\s.,!?]/.test(t)) {
         // '…]]할 때 세상 신의' 처럼 앞말에 매인 '때·것·수' 같은 말까지 건너뛴다
@@ -45,13 +47,17 @@
       }
       // 구절 단위(문장부호 사이)로 나눠 마귀 관련 말이 든 구절만 감싼다
       return t.split(/([.!?;,·]\s*|\s—\s|\s-\s|\(|\))/).map((part) => {
-        if (!part || !DEVIL.test(part) || part.trim().length < 2) return part;
-        const lead = part.match(/^\s*/)[0], tail = part.match(/\s*$/)[0];
+        if (!part || !isDevil(part) || part.trim().length < 2) return part;
+        const lead = part.match(/^[\s"'“”‘’「」]*/)[0], tail = part.match(/[\s"'“”‘’「」]*$/)[0]; // 따옴표는 빨강 밖에
+        if (part.length - lead.length - tail.length < 2) return part;
         n++;
-        return `${lead}[[r|${part.trim()}]]${tail}`;
+        return `${lead}[[r|${part.slice(lead.length, part.length - tail.length)}]]${tail}`;
       }).join('');
     }).join('');
-    return [out, n];
+    // 쉼표·띄어쓰기만 사이에 둔 빨강 조각은 하나로 잇는다('[[r|완악함]], [[r|질병의 저주]]' → '[[r|완악함, 질병의 저주]]')
+    let merged = out, prev;
+    do { prev = merged; merged = merged.replace(/(\[\[r\|[^\[\]]*)\]\](,?\s*)\[\[r\|/g, '$1$2'); } while (merged !== prev);
+    return [merged, n];
   }
   window.Markup = { esc, mark, strip, autoRed };
 })();

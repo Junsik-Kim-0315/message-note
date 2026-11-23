@@ -412,6 +412,9 @@ ${transcript}`;
   }
   // 조사·어미가 달라도 잡히게 두 글자 묶음이 얼마나 겹치는지로 본다
   const grams = (s) => { const t = norm(s).replace(/[^가-힣A-Za-z0-9]/g, ''); const out = new Set(); for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2)); return [...out]; };
+  // 문장의 핵심 낱말(조사·흔한 말 뺀 두 글자 이상) 중 정리본에 있는 개수
+  const ANCHOR_STOP = /^(그리스도|하나님|예수|세상|육신적|사람|신자|성도|하는|있는|없는|자기|모든|우리|내가|나는|이런|그런|것|자|때|않는|못하는|없이|영적|아래서|된다)$/;
+  const anchorHits = (s, whole) => [...new Set(String(s).split(/[\s,·'"()]+/).map((w) => w.replace(/(에게|에서|으로|하고|하며|하는|하게|했던|하다가|다가|에만|에도|이나|처럼|만|을|를|의|이|가|은|는|에|와|과|도|로|며|고)$/, '')).filter((w) => w.length >= 2 && !ANCHOR_STOP.test(w)))].filter((w) => whole.includes(w)).length;
   const overlap = (s, whole) => { const g2 = grams(s); if (!g2.length) return 1; return g2.filter((x) => whole.includes(x)).length / g2.length; };
   // 받아쓰기 원문 핵심 문장 다듬기: 군말·호칭을 덜고 너무 길면 문장 경계에서 자른다
   function tidyCore(s) {
@@ -529,7 +532,7 @@ ${transcript}`;
     const sp = (notes.stated_points || []).filter(Boolean);
     if (core || sp.length) {
       // 조사·어미가 달라도 잡히게 두 글자 묶음이 얼마나 겹치는지로 본다
-      const hit = (s) => overlap(s, whole) >= 0.6;
+      const hit = (s) => { const o = overlap(s, whole); return o >= 0.6 || (o >= 0.3 && anchorHits(s, whole) >= 2); }; // 바꿔 말해도 맥락이 같으면 반영
       const coreOk = !core || hit(core);
       const spHit = sp.filter(hit).length;
       add('stated', '설교자가 직접 밝힌 핵심·요점', coreOk && spHit >= Math.ceil(sp.length * 0.7), `${core ? (coreOk ? '핵심 반영' : '핵심 빠짐') : ''}${sp.length ? ` 요점 ${spHit}/${sp.length}` : ''}`.trim(),
@@ -568,10 +571,13 @@ ${transcript}`;
     // 8-1. 대지마다 대조 짝: 노트의 pair.against가 정리본에 담겼는지 + 대지 본문에 대조 표현이 있는지
     const pairs = (notes.sections || []).filter((x) => x.pair && x.pair.christ && x.pair.against && !/곁가지/.test(x.role || ''));
     if (pairs.length) {
-      const missP = pairs.filter((x) => overlap(x.pair.against, whole) < 0.35);
+      // 반대쪽을 바꿔 말해도(예: '로뎀나무 아래서 낙심한 엘리야처럼') 맥락이 같으면 담긴 것으로 본다: 글자 겹침 35% 이상, 또는 20% 이상이면서 핵심 낱말 2개 이상
+      const missP = pairs.filter((x) => { const o = overlap(x.pair.against, whole); return !(o >= 0.35 || (o >= 0.2 && anchorHits(x.pair.against, whole) >= 2)); });
+      // 대지가 많은 설교는 한 장에 모든 짝을 다 넣기 어려워 4개 중 1개까지는 봐준다(핵심 단락의 짝은 반드시)
+      const missCore = missP.filter((x) => /핵심/.test(x.role || ''));
       const turn = /반면|그러나|하지만|못하|않|모르|빗나|대신|↔|막|깨뜨/;
       const withTurn = body.filter((b) => turn.test(window.Markup.strip((b.paragraphs || []).join(' ')))).length;
-      add('pair', '핵심과 반대 내용 짝 (필수)', !missP.length && withTurn >= Math.ceil(body.length * 0.8), // 사용자 요청: 핵심과 반대 내용이 나오면 반드시 넣는다
+      add('pair', '핵심과 반대 내용 짝 (필수)', !missCore.length && missP.length <= Math.floor(pairs.length * 0.25) && withTurn >= Math.ceil(body.length * 0.8), // 사용자 요청: 핵심과 반대 내용이 나오면 반드시 넣는다
         `대조 ${pairs.length - missP.length}/${pairs.length}, 대조가 있는 대지 ${withTurn}/${body.length}`,
         `그리스도 쪽을 말한 대지 안에 설교자가 대조한 반대쪽을 한두 문장으로 짝지어 넣으세요(대조 표현 '반면', '그러나' 등): ${missP.map((x) => `${x.pair.christ} ↔ ${x.pair.against}`).join(' / ')}`);
     }
@@ -593,7 +599,7 @@ ${transcript}`;
     add('noise', '핵심과 상관없는 분위기 환기·인사·광고 없음', !noise.length, noise.length ? `들어감: ${noise.map((t) => window.Markup.strip(t).match(NOISE)[0]).join(', ')}` : '없음',
       '\'농담으로 주의를 환기하며\'처럼 설교자 행동만 묘사한 말과 인사·광고를 빼세요. 그 농담이 핵심이나 흐름에 이어진다면 행동 묘사 대신 무엇과 어떻게 이어지는지(예: ~처럼 인생도 바꿔야 한다)로 고쳐 쓰고, 이어지지 않으면 빼세요.');
     add('length', '한 장 분량', len <= 2000 && !longHead, `본문 ${len}자${longHead ? `, 긴 대지 제목 ${longHead}개` : ''}`,
-      `전체를 1,500~1,800자로 줄이고(덜 중요한 설명부터), 대지 제목은 15자 안팎으로 짧게 쓰세요. 통과한 항목의 핵심은 지키세요.`);
+      `전체를 1,500~1,800자로 줄이고(덜 중요한 설명부터, 그리스도 쪽과 반대쪽 대조 짝·마귀를 깨뜨리는 선포는 줄이지 말고), 대지 제목은 15자 안팎으로 짧게 쓰세요. 통과한 항목의 핵심은 지키세요.`);
     return items;
   }
 
@@ -637,6 +643,7 @@ ${transcript}`;
     onStep?.(1);
     const notes = await sermonNotes(cfg, meta, transcript, profileText);
     Debug.log('notes', { notes });
+    window.MN_BREAK_KEYS = (notes.break_keys || []).map((k) => String(k).replace(/\s+/g, '')).filter((k) => k.length >= 2);
     setRelated(notes); // 이 설교에서 같은 맥락으로 쓰인 말: 점검표가 글자 대신 맥락으로 확인
     // 노트가 설교자 핵심을 비워 두면 앱이 찾은 후보 중 주제어가 든 것으로 채운다
     if (!String(notes.stated_core || '').trim() && (window.MN_CORE_CANDS || []).length) {
