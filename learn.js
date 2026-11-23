@@ -59,8 +59,8 @@
   };
 
   // 이번 정리의 분석 결과를 쌓는다. 같은 기록을 다시 정리하면 한 번만 센다.
-  // 농담·외모·인사·광고는 설교 패턴으로 배우지 않는다(정리본 서론에 '농담으로 주의를 환기'가 들어가던 원인)
-  const NOISE = /농담|우스갯|가르마|헤어\s*스타일|머리\s*모양|외모|주의를\s*환기|광고|인사말|안부/;
+  // '주의 환기'처럼 핵심과 상관없는 도입 행동·인사·광고는 패턴으로 배우지 않는다(농담 자체는 흐름에 이어지면 배워도 된다)
+  const NOISE = /주의를\s*(환기|집중|끌)|분위기를\s*(풀|환기|띄|부드럽)|웃음을\s*(주|자아|유발)|(농담|우스갯소리)(으)?로\s*(시작|문을\s*열|주의|분위기)|인사말|광고|안부/;
   function dropNoise(v) {
     if (typeof v !== 'string' || !NOISE.test(v)) return v;
     return v.replace(/\(([^)]*)\)/g, (m, inner) => { const k = inner.split(/[·,]\s*/).filter((x) => !NOISE.test(x)); return k.length ? `(${k.join('·')})` : ''; })
@@ -99,7 +99,7 @@
     if (p.guide?.length) lines.push('[설교 구조 지침]', ...p.guide.map((g) => `- ${g}`), '[관찰된 패턴]');
     if (p.vocab?.length) lines.push(`- 이 설교자의 핵심 어휘(정리할 때 그대로 살릴 것): ${p.vocab.join(', ')}`);
     for (const f of ['structure', 'start_cue', 'end_cue', 'intro', 'point_markers', 'transitions', 'illustrations', 'application', 'closing']) {
-      const v = (p.patterns?.[f] || []).map(dropNoise).filter(Boolean); // 예전에 쌓인 농담 패턴도 프롬프트에는 넣지 않는다
+      const v = (p.patterns?.[f] || []).map(dropNoise).filter(Boolean); // 예전에 쌓인 '주의 환기' 패턴도 프롬프트에는 넣지 않는다
       if (v?.length) lines.push(`- ${LABELS[f]}: ${v.slice(0, f === 'point_markers' || f === 'transitions' ? 8 : 3).join(' / ')}`);
     }
     const tf = Object.entries(p.term_fixes || {});
