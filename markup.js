@@ -59,5 +59,27 @@
     do { prev = merged; merged = merged.replace(/(\[\[r\|[^\[\]]*)\]\](,?\s*)\[\[r\|/g, '$1$2'); } while (merged !== prev);
     return [merged, n];
   }
-  window.Markup = { esc, mark, strip, autoRed };
+  // 빨강 다듬기: AI가 빨강을 여러 문장에 걸쳐 칠하면 마귀 쪽이 아닌 문장까지 빨개진다
+  // (예: '마귀 있다. 불화살 쏘는 놈 있다. 이게 진짜 보여야 여러분이 은혜 속에서 사는 거예요' 전체가 빨강)
+  // → 빨강 안을 문장·구절로 나눠 마귀 쪽 말이 없는 문장은 빨강을 벗기고, 그리스도·은혜 쪽 구절도 벗긴다
+  const CHRIST = /그리스도|예수|은혜|복음|성령|하나님\s*나라|승리|재창조|생명|구원|감사|축복|여자의\s*후손/;
+  function trimRed(src) {
+    let n = 0;
+    const out = String(src || '').replace(/\[\[r\|([^\[\]]*)\]\]/g, (m, inner) => {
+      const sents = inner.split(/(?<=[.!?])\s+/);
+      const parts = sents.map((s) => {
+        if (!isDevil(s)) { n++; return s; }
+        // 한 문장 안에서도 쉼표 구절이 마귀 쪽 말 없이 그리스도·은혜 쪽이면 빼낸다
+        const cl = s.split(/(,\s*)/);
+        if (cl.length > 2 && cl.some((c, i) => i % 2 === 0 && !isDevil(c) && CHRIST.test(c))) {
+          n++;
+          return cl.map((c, i) => (i % 2 || !c.trim() ? c : (!isDevil(c) && CHRIST.test(c) ? c : `[[r|${c}]]`))).join('').replace(/(\[\[r\|[^\[\]]*)\]\](,\s*)\[\[r\|/g, '$1$2');
+        }
+        return `[[r|${s}]]`;
+      });
+      return parts.join(' ');
+    });
+    return [n ? out : String(src || ''), n];
+  }
+  window.Markup = { esc, mark, strip, autoRed, trimRed };
 })();

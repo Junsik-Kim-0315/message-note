@@ -8,7 +8,7 @@
 - [[y|...]] 노란 형광: 각 대지에서 중요한 문장. 대지마다 1~3곳.
 - [[t|...]] 핵심 용어(굵게+밑줄): 은혜, 언약, 회개 같은 신앙 핵심 용어가 처음 나올 때.
 - [[v|...]] 성경 구절 인용: 예) [[v|요한복음 3:16]] 또는 인용된 말씀 본문.
-표시는 겹치지 않게, 강조할 부분만 짧게 감싼다.
+표시는 겹치지 않게, 강조할 부분만 짧게 감싼다. 빨강은 마귀 쪽 문장·구절에만 칠하고, 여러 문장을 한꺼번에 감싸지 않는다. 같은 인용 안이라도 은혜·그리스도 쪽 문장(예: '이게 진짜 보여야 여러분이 은혜 속에서 사는 거예요')은 빨강 밖에 두고 필요하면 초록이나 노랑으로 칠한다.
 호칭: 정리본에서는 '주님' 대신 '그리스도'(또는 '예수 그리스도')라고 쓴다.`;
 
   // thinking: 생각 단계 예산(0이면 끔). 받아쓰기는 생각이 필요 없고 느려지기만 해서 끈다.
@@ -461,7 +461,8 @@ ${transcript}`;
   }
   function redAll(doc) {
     let n = 0;
-    const R = (s) => { if (typeof s !== 'string') return s; const [o, k] = window.Markup.autoRed(s); n += k; return o; };
+    // 먼저 마귀 쪽이 아닌 문장에 걸친 빨강을 벗기고(trimRed), 그다음 표시 밖에 남은 마귀 쪽 말을 빨강으로 감싼다(autoRed)
+    const R = (s) => { if (typeof s !== 'string') return s; const [t] = window.Markup.trimRed(s); const [o, k] = window.Markup.autoRed(t); n += k; return o; };
     const A = (a) => (Array.isArray(a) ? a.map(R) : R(a));
     doc.one_line = R(doc.one_line); doc.summary = A(doc.summary); doc.intro = A(doc.intro); doc.conclusion = A(doc.conclusion); doc.questions = A(doc.questions);
     (doc.body || []).forEach((b) => { b.paragraphs = A(b.paragraphs); });
