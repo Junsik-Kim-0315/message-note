@@ -63,23 +63,32 @@
   // (예: '마귀 있다. 불화살 쏘는 놈 있다. 이게 진짜 보여야 여러분이 은혜 속에서 사는 거예요' 전체가 빨강)
   // → 빨강 안을 문장·구절로 나눠 마귀 쪽 말이 없는 문장은 빨강을 벗기고, 그리스도·은혜 쪽 구절도 벗긴다
   const CHRIST = /그리스도|예수|은혜|복음|성령|하나님\s*나라|승리|재창조|생명|구원|감사|축복|여자의\s*후손/;
+  // 회복·세움 쪽 말: 마귀 쪽 말이 없는 구절에 이런 말이 있으면 뉘앙스가 바뀐 것(예: '흑암 경제가 무너지고 | 미래 성전이 세워집니다')
+  const RESTORE = /세워|세우|세운|살리|살릴|살아|회복|열리|열린|누리|일어서|일어나|드리|이루|성전이|성막이|축복|감사|기쁨|승리|빛나|번성|부흥/;
+  const good = (c) => !isDevil(c) && (CHRIST.test(c) || RESTORE.test(c));
+  // 구절 나누기: 쉼표, 그리고 '-고/-며/-면서/-지만/-는데/-니/-면/-서/-ㄹ 때' 같은 이음말 뒤
+  const CLAUSE = /(,\s*|(?<=(?:[가-힣](?:고|며|면서|지만|는데|니까|으니|면|어서|아서|해서)|\s때))\s+)/;
+  function splitRed(s) {
+    const cl = s.split(CLAUSE);
+    if (cl.length < 3 || !cl.some((c, i) => i % 2 === 0 && c.trim() && good(c))) return null;
+    return cl.map((c, i) => (i % 2 || !c.trim() ? c : good(c) ? c : `[[r|${c}]]`)).join('');
+  }
+  const joinRed = (t) => { let m = t, p; do { p = m; m = m.replace(/(\[\[r\|[^\[\]]*)\]\](,?\s*)\[\[r\|/g, '$1$2'); } while (m !== p); return m; };
+  // 빨강 다듬기: 빨강 안을 문장·구절로 나눠, 마귀 쪽 말이 없는 문장은 빨강을 벗기고
+  // 마귀 쪽 문장 안에서도 그리스도·은혜·회복 쪽으로 뉘앙스가 바뀐 구절은 빨강 밖으로 뺀다
+  // (예: '마귀 있다. … 이게 진짜 보여야 여러분이 은혜 속에서 사는 거예요', '흑암 경제가 무너지고 다음 세대를 살릴 미래 성전이 세워집니다')
   function trimRed(src) {
     let n = 0;
     const out = String(src || '').replace(/\[\[r\|([^\[\]]*)\]\]/g, (m, inner) => {
-      const sents = inner.split(/(?<=[.!?])\s+/);
-      const parts = sents.map((s) => {
+      const parts = inner.split(/(?<=[.!?])\s+/).map((s) => {
         if (!isDevil(s)) { n++; return s; }
-        // 한 문장 안에서도 쉼표 구절이 마귀 쪽 말 없이 그리스도·은혜 쪽이면 빼낸다
-        const cl = s.split(/(,\s*)/);
-        if (cl.length > 2 && cl.some((c, i) => i % 2 === 0 && !isDevil(c) && CHRIST.test(c))) {
-          n++;
-          return cl.map((c, i) => (i % 2 || !c.trim() ? c : (!isDevil(c) && CHRIST.test(c) ? c : `[[r|${c}]]`))).join('').replace(/(\[\[r\|[^\[\]]*)\]\](,\s*)\[\[r\|/g, '$1$2');
-        }
+        const sp = splitRed(s);
+        if (sp) { n++; return sp; }
         return `[[r|${s}]]`;
       });
       return parts.join(' ');
     });
-    return [n ? out : String(src || ''), n];
+    return [n ? joinRed(out) : String(src || ''), n];
   }
   window.Markup = { esc, mark, strip, autoRed, trimRed };
 })();

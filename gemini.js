@@ -462,7 +462,7 @@ ${transcript}`;
   function redAll(doc) {
     let n = 0;
     // 먼저 마귀 쪽이 아닌 문장에 걸친 빨강을 벗기고(trimRed), 그다음 표시 밖에 남은 마귀 쪽 말을 빨강으로 감싼다(autoRed)
-    const R = (s) => { if (typeof s !== 'string') return s; const [t] = window.Markup.trimRed(s); const [o, k] = window.Markup.autoRed(t); n += k; return o; };
+    const R = (s) => { if (typeof s !== 'string') return s; const [t] = window.Markup.trimRed(s); const [o, k] = window.Markup.autoRed(t); n += k; return window.Markup.trimRed(o)[0]; }; // 앱이 칠한 빨강도 한 번 더 구절로 다듬는다
     const A = (a) => (Array.isArray(a) ? a.map(R) : R(a));
     doc.one_line = R(doc.one_line); doc.summary = A(doc.summary); doc.intro = A(doc.intro); doc.conclusion = A(doc.conclusion); doc.questions = A(doc.questions);
     (doc.body || []).forEach((b) => { b.paragraphs = A(b.paragraphs); });
