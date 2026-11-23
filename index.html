@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261123b">
+<link rel="stylesheet" href="style.css?v=20261123c">
 </head>
 <body>
 <header class="topbar-wrap"><div class="topbar">
@@ -86,6 +86,7 @@
       <p id="paraText" class="para-text"></p>
     </div>
     <div id="saveInfo" class="hint"></div>
+    <button id="btnDebug2" class="link-btn" type="button">디버그 로그 내보내기</button>
     <div id="checkBox" class="check-box" hidden></div>
     <div id="docPreview" class="doc-preview"></div>
   </section>
@@ -129,6 +130,10 @@
       <button value="ok" id="btnSaveCfg" class="btn primary">저장</button>
     </div>
     <p class="hint" id="testState"></p>
+    <div class="row">
+      <button type="button" id="btnDebug" class="btn">디버그 로그 내보내기</button>
+      <span class="hint">정리 문제를 살펴볼 때 이 파일을 보내 주세요. API 키는 들어가지 않아요.</span>
+    </div>
   </form>
 </dialog>
 
@@ -138,12 +143,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script>window.APP_VERSION = '2026-11-23b';</script>
-<script src="markup.js?v=20261123b"></script>
-<script src="pdf.js?v=20261123b"></script>
-<script src="drive.js?v=20261123b"></script>
-<script src="learn.js?v=20261123b"></script>
-<script src="gemini.js?v=20261123b"></script>
-<script src="app.js?v=20261123b"></script>
+<script>window.APP_VERSION = '2026-11-23c';</script>
+<script src="markup.js?v=20261123c"></script>
+<script src="pdf.js?v=20261123c"></script>
+<script src="drive.js?v=20261123c"></script>
+<script src="learn.js?v=20261123c"></script>
+<script src="gemini.js?v=20261123c"></script>
+<script src="app.js?v=20261123c"></script>
 </body>
 </html>

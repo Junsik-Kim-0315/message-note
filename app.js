@@ -961,6 +961,39 @@
     } catch (e) { if (e.name !== 'AbortError') toast(e.message); }
   });
 
+  // ---------- 디버그 로그 내보내기 ----------
+  // 최근 정리 3번의 단계별 Gemini 요청·응답(받아쓰기 원문은 앞뒤만), 노트, 점검표, 최종 결과와 현재 기록의 상태를 JSON 파일로.
+  // API 키·구글 토큰은 넣지 않는다.
+  async function exportDebug() {
+    const lastraw = store.get('mn_lastraw', null);
+    const hist = store.get('mn_history', []);
+    const cur = S ? {
+      id: S.id, meta: S.meta, segments: (S.segments || []).map(({ i, t, len, status, text, error }) => ({ i, t, len, status, chars: (text || '').length, error: error || '' })),
+      transcriptChars: (S.segments || []).reduce((n, x) => n + (x.text || '').length, 0),
+      final: S.final ? { title: S.final.title, check: S.final._check || null, autoRed: S.final._autoRed || 0, stated_core: S.final.stated_core || '', doc: { ...S.final, _notes: undefined } } : null,
+      notes: S.final?._notes || null,
+    } : null;
+    let profile = null;
+    try { const p = await Learn.load(readMeta().preacher); profile = { preacher: p.preacher, sermons: p.sermons, seedVer: p.seedVer, guide: p.guide, vocab: p.vocab, term_fixes: p.term_fixes, patterns: p.patterns }; } catch (e) {}
+    const data = {
+      exportedAt: new Date().toISOString(), app: window.APP_VERSION || '', userAgent: navigator.userAgent,
+      models: { stt: cfg.sttModel, ana: cfg.anaModel }, liveMin: cfg.liveMin, rpm: cfg.rpm, hasKey: !!cfg.key, drive: Drive.hasToken(),
+      session: cur, historyCount: hist.length, lastBrokenResponse: lastraw,
+      runs: window.MNDebug?.runs || [], recentErrors: window.MNDebug?.errors || [], profile,
+    };
+    const txt = JSON.stringify(data, null, 1).replace(/AIza[0-9A-Za-z_\-]{20,}/g, '[키 가림]').replace(/ya29\.[0-9A-Za-z_\-.]+/g, '[토큰 가림]');
+    const d = new Date(); const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+    const file = new File([txt], `말씀정리_디버그_${stamp}.json`, { type: 'application/json' });
+    try {
+      if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: '말씀 정리 디버그 로그' }); return; }
+    } catch (e) { if (e.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    toast(`디버그 로그를 내보냈어요 (${Math.round(txt.length / 1024)}KB)`);
+  }
+  $('btnDebug').addEventListener('click', () => exportDebug().catch((e) => toast(e.message)));
+  $('btnDebug2').addEventListener('click', () => exportDebug().catch((e) => toast(e.message)));
+
   // ---------- 설정 창 ----------
   function openSettings() {
     $('cfgKey').value = cfg.key; $('cfgSttModel').value = cfg.sttModel; $('cfgAnaModel').value = cfg.anaModel; $('cfgLiveMin').value = cfg.liveMin; $('cfgRpm').value = cfg.rpm;

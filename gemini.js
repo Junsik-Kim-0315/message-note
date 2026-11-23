@@ -14,10 +14,35 @@
   // 긴 설교(90분 이상)일수록 응답이 오래 걸리니 받아쓰기 길이에 맞춰 기다리는 시간을 늘린다
   const longWait = (base, text, perK, cap) => Math.min(cap, base + Math.round(String(text || '').length / 1000) * perK);
 
-  async function call(cfg, model, parts, { json = false, temperature = 0.3, timeoutMs = 120000, thinking = null } = {}) {
+  // ---------- 디버그 로그 ----------
+  // 정리 문제를 분석할 수 있게 단계별 요청·응답·노트·점검표를 기록한다. API 키·토큰은 절대 넣지 않는다.
+  // 최근 정리 3번까지 휴대폰(localStorage mn_debug)에 남기고, 설정에서 파일로 내보낸다.
+  const cap = (t, n) => { t = String(t ?? ''); return t.length > n ? `${t.slice(0, Math.floor(n * 0.7))}\n…(${t.length - n}자 생략)…\n${t.slice(-Math.floor(n * 0.3))}` : t; };
+  const Debug = {
+    runs: (() => { try { return JSON.parse(localStorage.getItem('mn_debug')) || []; } catch (e) { return []; } })(),
+    errors: [],
+    cur: null,
+    begin(kind, info) { this.cur = { kind, at: new Date().toISOString(), app: window.APP_VERSION || '', info, steps: [] }; this.runs.unshift(this.cur); this.runs = this.runs.slice(0, 3); this.save(); },
+    log(type, data) {
+      const e = { t: new Date().toISOString(), type, ...data };
+      if (this.cur) this.cur.steps.push(e);
+      if (/error/.test(type)) { this.errors.unshift(e); this.errors = this.errors.slice(0, 30); }
+      this.save();
+    },
+    end(status) { if (this.cur) { this.cur.status = status; this.cur.endAt = new Date().toISOString(); } this.save(); this.cur = null; },
+    save() {
+      for (let keep = 3; keep >= 1; keep--) {
+        try { localStorage.setItem('mn_debug', JSON.stringify(this.runs.slice(0, keep))); return; } catch (e) { /* 저장 공간이 모자라면 오래된 기록부터 덜어 낸다 */ }
+      }
+    },
+  };
+  window.MNDebug = Debug;
+
+  async function call(cfg, model, parts, { json = false, temperature = 0.3, timeoutMs = 120000, thinking = null, label = '' } = {}) {
     if (!cfg.key) throw new Error('설정에서 Gemini API 키를 넣어주세요.');
     const send = async (withThinking) => {
       const ctrl = new AbortController();
+      const t0 = Date.now();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
         // 긴 설교(90분 이상)는 노트 JSON이 길어 기본 출력 한도에서 잘린다 → 출력 한도를 넉넉히
@@ -32,6 +57,7 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const msg = data.error?.message || '';
+          Debug.log('gemini-error', { label, model, status: res.status, message: cap(msg, 1000), ms: Date.now() - t0 });
           // 이 모델이 생각 예산 설정을 받지 않으면 빼고 다시
           if (withThinking && thinking != null && res.status === 400 && /thinking/i.test(msg)) return send(false);
           const err = new Error(res.status === 429 ? 'Gemini 사용 한도 초과(429): 잠시 뒤 자동으로 다시 해요' : `Gemini 오류 ${res.status}: ${msg}`.trim());
@@ -43,6 +69,8 @@
         }
         const cand = data.candidates?.[0] || {};
         const text = (cand.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
+        if (label && label !== 'stt') Debug.log('gemini', { label, model, ms: Date.now() - t0, temperature, thinking, finish: cand.finishReason || '', usage: data.usageMetadata || null,
+          prompt: cap(parts.filter((p) => p.text != null).map((p) => p.text).join('\n'), 12000), response: cap(text, 60000) });
         if (!json) return text.trim();
         try { return parseJson(text); } catch (e) {
           // 원인 확인용으로 마지막 깨진 응답을 휴대폰에 남겨 둔다
@@ -53,6 +81,8 @@
           throw e;
         }
       } catch (e) {
+        if (e.name === 'AbortError') Debug.log('gemini-error', { label, model, status: 'timeout', ms: Date.now() - t0 });
+        else if (e.badJson) Debug.log('gemini-error', { label, model, status: 'bad-json', message: e.message, finish: e.finish || '' });
         if (e.name === 'AbortError') { const t = new Error(`Gemini 응답이 너무 오래 걸려요 (${Math.round(timeoutMs / 1000)}초 넘음).`); t.status = 'timeout'; throw t; }
         throw e;
       } finally {
@@ -167,7 +197,7 @@
 ${window.MN_TERMS ? `- 이전에 자주 잘못 받아쓴 말(잘못→바름): ${window.MN_TERMS}\n` : ''}${prevTail ? `직전 구간의 끝부분(문맥 참고용, 다시 쓰지 마세요): "${prevTail}"` : ''}`;
     const data = await blobToBase64(blob);
     return call(cfg, cfg.sttModel, [{ text: prompt }, { inline_data: { mime_type: mime, data } }],
-      { temperature: 0, thinking: 0, timeoutMs: approxSec >= 60 ? 240000 : 90000 });
+      { temperature: 0, thinking: 0, timeoutMs: approxSec >= 60 ? 240000 : 90000, label: 'stt' });
   }
 
   // ---------- 긴 녹음 파일: Gemini에 파일째 올리고 시간 구간별로 받아쓰기 ----------
@@ -214,7 +244,7 @@ ${window.MN_TERMS ? `- 이전에 자주 잘못 받아쓴 말(잘못→바름): $
 - 잘 들리지 않는 부분은 지어내지 말고 생략하세요.
 - 찬양·연주는 (찬양), 다 같이 하는 기도·신앙고백·광고는 (기도), (광고)처럼 한 줄로만 표시하세요.
 - 화자 이름, 시간, 설명 없이 받아쓴 문장만 출력하세요.${window.MN_TERMS ? `\n- 이전에 자주 잘못 받아쓴 말(잘못→바름): ${window.MN_TERMS}` : ''}`;
-    return call(cfg, cfg.sttModel, [{ file_data: { mime_type: ref.mime, file_uri: ref.uri } }, { text: prompt }], { temperature: 0, thinking: 0, timeoutMs: 300000 });
+    return call(cfg, cfg.sttModel, [{ file_data: { mime_type: ref.mime, file_uri: ref.uri } }, { text: prompt }], { temperature: 0, thinking: 0, timeoutMs: 300000, label: 'stt' });
   }
 
   async function liveSummary(cfg, meta, transcript) {
@@ -235,7 +265,7 @@ ${MARK_RULES}
 
 [받아쓰기]
 ${transcript}`;
-    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 0, timeoutMs: longWait(90000, transcript, 1500, 200000) });
+    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 0, timeoutMs: longWait(90000, transcript, 1500, 200000), label: 'live' });
   }
 
   // 최종 정리는 두 단계로 한다.
@@ -345,7 +375,7 @@ ${profileText}
 
 [받아쓰기 전체]
 ${transcript}`;
-    const opt = { json: true, temperature: 0.2, thinking: 2048, timeoutMs: longWait(300000, transcript, 4000, 600000) };
+    const opt = { json: true, temperature: 0.2, thinking: 2048, timeoutMs: longWait(300000, transcript, 4000, 600000), label: 'notes(1단계 설교 노트)' };
     try {
       return await call(cfg, cfg.anaModel, [{ text: prompt }], opt);
     } catch (e) {
@@ -512,8 +542,23 @@ ${transcript}`;
   }
 
   async function finalDoc(cfg, meta, transcript, onStep, profileText) {
+    Debug.begin('final', { meta: { ...meta }, models: { stt: cfg.sttModel, ana: cfg.anaModel }, transcriptChars: String(transcript || '').length,
+      repeated: window.MN_REPEATED || null, signals: window.MN_SIGNALS || '', vocab: window.MN_VOCAB || null, profile: cap(profileText, 8000) });
+    try {
+      const out = await finalDocInner(cfg, meta, transcript, onStep, profileText);
+      Debug.log('result', { check: out._check, autoRed: out._autoRed || 0, stated_core: out.stated_core || '', doc: JSON.parse(JSON.stringify({ ...out, _notes: undefined })) });
+      Debug.end(`ok ${out._check.filter((c) => c.ok).length}/${out._check.length}`);
+      return out;
+    } catch (e) {
+      Debug.log('final-error', { message: e.message, status: e.status || '' });
+      Debug.end('error');
+      throw e;
+    }
+  }
+  async function finalDocInner(cfg, meta, transcript, onStep, profileText) {
     onStep?.(1);
     const notes = await sermonNotes(cfg, meta, transcript, profileText);
+    Debug.log('notes', { notes });
     // 정리본의 주인공: 노트의 중심 주제 → 가장 무거운 본문 핵심어 → 사용자가 적은 제목의 첫 말
     const theme = String(notes.central_theme || [...(notes.text_keys || [])].sort((a, b) => (b.weight || 0) - (a.weight || 0))[0]?.key || (meta.title || '').split(/[\s,·]/)[0] || '').trim();
     // 상시 축(그리스도·영적 싸움·재창조)과 이번 본문 핵심어 가운데 받아쓰기에 실제로 나온 말은 정리본에서 빠지지 않게 목록으로 넘긴다
@@ -576,10 +621,11 @@ ${profileText}
 
 [설교 노트]
 ${JSON.stringify(notes, null, 1)}`;
-    const doc = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000 });
+    const doc = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000, label: 'doc(2단계 한 장 정리)' });
     // 점검표로 한꺼번에 검사하고, 빠진 항목만 보충한다(최대 2번). 이미 맞는 부분은 그대로 둔다.
     let out = doc;
     let check = checkDoc(out, notes, theme, meta);
+    Debug.log('check', { round: 0, theme, mustKeys: counted, check: check.map(({ key, ok, detail }) => ({ key, ok, detail })) });
     for (let round = 0; round < 2 && check.some((c) => !c.ok); round++) {
       onStep?.(3);
       const miss = check.filter((c) => !c.ok);
@@ -596,13 +642,15 @@ ${JSON.stringify(out, null, 1)}
 
 [설교 노트]
 ${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, sections: notes.sections, theme_notes: notes.theme_notes, contrast: notes.contrast, break_keys: notes.break_keys, spiritual_warfare: notes.spiritual_warfare, christ_side: notes.christ_side, text_keys: notes.text_keys, detail_keys: notes.detail_keys, points: notes.points }, null, 1)}`;
-        const fixed = await call(cfg, cfg.anaModel, [{ text: fixPrompt }], { json: true, temperature: 0.2, thinking: 1024, timeoutMs: 300000 });
+        const fixed = await call(cfg, cfg.anaModel, [{ text: fixPrompt }], { json: true, temperature: 0.2, thinking: 1024, timeoutMs: 300000, label: `fix(점검표 보충 ${round + 1})` });
         if (fixed && Array.isArray(fixed.body) && fixed.body.length) {
           const again = checkDoc(fixed, notes, theme, meta);
           // 보충한 결과가 통과 항목을 더 잃지 않았을 때만 바꾼다
-          if (again.filter((c) => c.ok).length >= check.filter((c) => c.ok).length) { out = fixed; check = again; }
+          const accept = again.filter((c) => c.ok).length >= check.filter((c) => c.ok).length;
+          Debug.log('check', { round: round + 1, accepted: accept, check: again.map(({ key, ok, detail }) => ({ key, ok, detail })) });
+          if (accept) { out = fixed; check = again; }
         }
-      } catch (e) { break; /* 고치기 실패해도 지금 결과로 진행 */ }
+      } catch (e) { Debug.log('fix-error', { round: round + 1, message: e.message }); break; /* 고치기 실패해도 지금 결과로 진행 */ }
     }
     // 설교자가 직접 밝힌 핵심은 모델이 바꿔 쓰거나 빼먹는 일이 잦아, 노트의 원문을 정리본에 그대로 넣는다
     const sc = tidyCore(notes.stated_core);
@@ -640,7 +688,10 @@ ${MARK_RULES}
 
 [설교 자료]
 ${JSON.stringify(src, null, 1)}`;
-    const r = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 512, timeoutMs: 180000 });
+    Debug.begin('paragraph', { meta: { ...meta } });
+    let r;
+    try { r = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 512, timeoutMs: 180000, label: 'paragraph(한 문단)' }); Debug.end('ok'); }
+    catch (e) { Debug.end('error'); throw e; }
     return String(r.paragraph || '').trim();
   }
 
