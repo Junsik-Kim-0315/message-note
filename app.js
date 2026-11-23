@@ -835,6 +835,8 @@
     if (text.length < 50) { flow(1, 'error', '받아쓴 내용이 너무 적어요', '녹음이 제대로 됐는지 받아쓰기 탭에서 확인해 주세요'); toast('받아쓴 내용이 너무 적어서 정리할 수 없어요.'); return; }
     if (finalBusy) return;
     finalBusy = true;
+    // 정리 중 화면이 꺼지면 아이폰이 요청을 끊는다('Load failed') → 정리하는 동안 화면을 켜 둔다
+    const ownLock = !wakeLock; if (ownLock) await lockScreen();
     autoSaveTranscript();
     showTab('result');
     // 최종 정리 3단계: 1 노트 분석 → 2 정리본 작성 → 3 점검·보완 (위 막대도 1/3, 2/3, 3/3로 채운다)
@@ -882,6 +884,7 @@
       $('resActions').hidden = false;
       flow(2, 'error', '정리 실패', e.message);
     }
+    if (ownLock && !rec) { try { await wakeLock?.release(); } catch (e) {} wakeLock = null; }
     finalBusy = false;
   }
 

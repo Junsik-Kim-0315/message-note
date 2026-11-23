@@ -8,7 +8,8 @@
 - [[y|...]] 노란 형광: 각 대지에서 중요한 문장. 대지마다 1~3곳.
 - [[t|...]] 핵심 용어(굵게+밑줄): 은혜, 언약, 회개 같은 신앙 핵심 용어가 처음 나올 때.
 - [[v|...]] 성경 구절 인용: 예) [[v|요한복음 3:16]] 또는 인용된 말씀 본문.
-표시는 겹치지 않게, 강조할 부분만 짧게 감싼다.`;
+표시는 겹치지 않게, 강조할 부분만 짧게 감싼다.
+호칭: 정리본에서는 '주님' 대신 '그리스도'(또는 '예수 그리스도')라고 쓴다.`;
 
   // thinking: 생각 단계 예산(0이면 끔). 받아쓰기는 생각이 필요 없고 느려지기만 해서 끈다.
   // 긴 설교(90분 이상)일수록 응답이 오래 걸리니 받아쓰기 길이에 맞춰 기다리는 시간을 늘린다
@@ -89,15 +90,26 @@
         clearTimeout(timer);
       }
     };
+    // 네트워크가 잠깐 끊기면(아이폰 'Load failed', 'Failed to fetch') 3초·8초 뒤 다시 보낸다
+    const isNet = (e) => e && !e.status && !e.badJson && /load failed|failed to fetch|network|internet|connection/i.test(String(e.message || ''));
+    const sendNet = async (w) => {
+      for (let k = 0; ; k++) {
+        try { return await send(w); } catch (e) {
+          if (!isNet(e) || k >= 2) { if (isNet(e)) e.message = `인터넷 연결이 끊겨 정리를 마치지 못했어요(${e.message}). 화면을 켜 둔 채 다시 시도해 주세요.`; throw e; }
+          Debug.log('gemini-error', { label, model, status: 'network', message: String(e.message || ''), retry: k + 1 });
+          await new Promise((r) => setTimeout(r, k ? 8000 : 3000));
+        }
+      }
+    };
     try {
-      return await send(true);
+      return await sendNet(true);
     } catch (e) {
       // JSON이 깨져 왔으면 한 번 더: 문법을 지키라는 말을 덧붙이고 온도를 낮춰 다시 요청
       if (!e.badJson) throw e;
       const note = `\n\n[중요] 앞선 응답의 JSON 문법이 깨졌습니다(${e.truncated ? '길이 초과로 잘림' : '형식 오류'}). 이번에는 올바른 JSON만 출력하세요. 문자열 안에서는 큰따옴표(") 대신 작은따옴표(')나 「」를 쓰고, 항목 사이 쉼표를 빠뜨리지 말고, 인용은 짧게 줄여 전체를 더 간결하게 쓰세요.`;
       parts = parts.map((p, i) => (i === parts.length - 1 && p.text != null ? { text: p.text + note } : p));
       temperature = 0;
-      try { return await send(true); } catch (e2) {
+      try { return await sendNet(true); } catch (e2) {
         if (e2.badJson) e2.message = `정리 결과를 읽지 못했어요(${e2.truncated ? '응답이 너무 길어 잘림' : 'JSON 형식 오류'}${e2.finish && e2.finish !== 'STOP' ? `, ${e2.finish}` : ''}). 다시 시도해 주세요.`;
         throw e2;
       }
@@ -353,6 +365,7 @@ ${profileText}
  "conclusion": ["결론·결단 촉구의 요지들"],
  "application": ["설교자가 제시한 적용"],
  "text_keys": [{"key": "본문 핵심 언어", "meaning": "이 설교에서의 뜻 한 줄", "weight": 3}],
+ "related_terms": [{"word": "제목의 말·본문 핵심 언어·많이 반복된 말", "same": ["이 설교에서 앞뒤 문맥상 같은 뜻이나 같은 맥락으로 쓰인 말(예: 건축 → 짓다·세우다, 그리스도의 몸 → 성막·성전·거룩케 하다)"]}],
  "emphasized": ["설교자가 반복하거나 힘줘 말한 핵심 문장 원문"],
  "christ_side": [{"key": "핵심어 (예: 성막, 헌신, 유턴, 정체성, 재창조)", "quote": "설교자의 핵심 문장 원문"}],
  "spiritual_warfare": ["마귀·사단·악한 영·유혹 관련 발언 (없으면 빈 배열)"],
@@ -408,6 +421,41 @@ ${transcript}`;
     if (t.length > 160) { const cut = t.slice(0, 160); const k = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf(','), cut.lastIndexOf(' ')); t = cut.slice(0, k > 80 ? k : 160).replace(/[,\s]+$/, '') + '…'; }
     return t;
   }
+  // 같은 뜻·같은 맥락 표현(띄어쓰기 없앤 형태로 비교). 점검표 전체가 글자 그대로가 아니라 이 맥락으로 본다(사용자 기준).
+  // 앱 기본값 + 노트의 related_terms(이 설교의 문맥에서 AI가 판단한 같은 맥락 말)를 합친다.
+  const TITLE_SYN = {
+    건축: ['짓', '지으', '지어', '세우', '세워', '건설', '건립', '쌓'],
+    그리스도의몸: ['성막', '성전', '거룩', '내몸', '몸에', '처소'],
+    예물: ['헌신', '드리', '드림', '헌물'],
+    성전: ['성막', '몸'], 성막: ['성전', '처소'],
+    의미: ['뜻', '비밀'],
+  };
+  let REL_NOTES = {};
+  function setRelated(notes) {
+    REL_NOTES = {};
+    for (const r of (notes && notes.related_terms) || []) {
+      const w = norm(r.word || ''); if (!w) continue;
+      REL_NOTES[w] = [...new Set([...(REL_NOTES[w] || []), ...(r.same || []).map((x) => norm(x).replace(/(하다|다)$/, '')).filter((x) => x.length >= 1 && x !== w)])];
+    }
+  }
+  const related = (w) => { const k = norm(w); return [...(TITLE_SYN[k] || []), ...(REL_NOTES[k] || [])]; };
+  // text에 w가 있거나 같은 맥락 말이 있으면 그 말을, 없으면 ''
+  function found(text, w) {
+    const k = norm(w); if (!k) return '';
+    if (text.includes(k)) return k;
+    return related(k).find((x) => x && text.includes(x)) || '';
+  }
+  // '주님' 대신 '그리스도'(사용자 기준). 조사를 맞춰 바꾼다. 설교자 원문인 stated_core는 그대로 둔다.
+  function lordToChrist(doc) {
+    let n = 0;
+    const R = (s) => (typeof s !== 'string' ? s : s.replace(/주님(께서|께|은|이|을|의|과|도|만|으로|에게)?/g, (m, j = '') => { n++; return `그리스도${{ 은: '는', 이: '께서', 을: '를', 과: '와', 으로: '로', 에게: '께' }[j] ?? j}`; }));
+    const A = (a) => (Array.isArray(a) ? a.map(R) : R(a));
+    doc.one_line = R(doc.one_line); doc.summary = A(doc.summary); doc.intro = A(doc.intro); doc.conclusion = A(doc.conclusion); doc.questions = A(doc.questions);
+    (doc.body || []).forEach((b) => { b.heading = R(b.heading); b.paragraphs = A(b.paragraphs); });
+    if (doc.perspectives) for (const k of Object.keys(doc.perspectives)) doc.perspectives[k] = A(doc.perspectives[k]);
+    (doc.key_terms || []).forEach((t) => { t.meaning = R(t.meaning); });
+    return n;
+  }
   function redAll(doc) {
     let n = 0;
     const R = (s) => { if (typeof s !== 'string') return s; const [o, k] = window.Markup.autoRed(s); n += k; return o; };
@@ -418,6 +466,7 @@ ${transcript}`;
     return n;
   }
   function checkDoc(doc, notes, theme, meta = {}) {
+    setRelated(notes);
     const items = [];
     const add = (key, label, ok, detail, fix) => items.push({ key, label, ok: !!ok, detail, fix });
     const body = Array.isArray(doc.body) ? doc.body : [];
@@ -429,9 +478,9 @@ ${transcript}`;
     if (theme) {
       // '잃어버린 드라크마'처럼 여러 낱말이면 마지막 명사(드라크마)로 본다
       const t = head(String(theme).trim().split(/\s+/).pop());
-      const heads = body.filter((b) => norm([b.heading, b.paragraphs]).includes(t)).length;
-      const n = whole.split(t).length - 1;
-      const ok = top.includes(t) && heads >= Math.max(1, Math.floor(body.length / 2)) && n >= 3;
+      const heads = body.filter((b) => found(norm([b.heading, b.paragraphs]), t)).length;
+      const n = whole.split(t).length - 1 + related(t).reduce((a, x) => a + whole.split(x).length - 1, 0);
+      const ok = !!found(top, t) && heads >= Math.max(1, Math.floor(body.length / 2)) && n >= 3;
       add('theme', `중심 주제「${theme}」`, ok, `제목·요약 ${top.includes(t) ? '있음' : '없음'}, 대지 ${heads}/${body.length}, ${n}회`,
         `one_line과 summary 첫 줄에「${theme}」${eul(theme)} 넣고 대지 절반 이상의 내용에서「${theme}」와 연결하세요(대지 제목마다 같은 구절을 되풀이하지는 마세요). 노트의 theme_notes(설명·본문 해설)를 담으세요.`);
     }
@@ -443,7 +492,7 @@ ${transcript}`;
     // 3. 마귀 쪽: 주제를 막는 것과 깨뜨림
     const red = marksOf(doc, 'r');
     const breakKeys = (notes.break_keys || []).map(head).filter(Boolean);
-    const hitBreak = breakKeys.filter((k) => whole.includes(k));
+    const hitBreak = breakKeys.filter((k) => found(whole, k));
     const devilHead = body.some((b) => /마귀|사단|사탄|원수|뱀|막는|못하게|굴레|요8:44|육신|흑암|중독|잃게|빼앗/.test(norm(b.heading)));
     // 노트의 spiritual_warfare(대적·선포·마귀 관련 발언)가 정리본 빨강에 얼마나 담겼는지
     const sw = (notes.spiritual_warfare || []).filter((x) => String(x).length >= 8);
@@ -456,9 +505,9 @@ ${transcript}`;
       `본론에 '무엇이「${theme}」${eul(theme)} 막는가와 그리스도의 이름으로 깨뜨림' 대지를 두고(제목에 마귀·사단 또는 '막는'이 드러나게), summary에도 한 줄 넣으세요. 노트의 contrast.break, break_keys(${breakKeys.join(', ')}), spiritual_warfare의 대적·선포를 빨강으로 담으세요. 빠진 마귀 관련 발언: ${sw.filter((x) => overlap(x, redText) < 0.3).slice(0, 4).join(' / ')}`);
     // 4. 본문 핵심 언어
     const keys = (notes.text_keys || []).map((k) => k.key).filter(Boolean);
-    const missKeys = keys.filter((k) => !whole.includes(head(k)));
+    const missKeys = keys.filter((k) => !found(whole, head(k)));
     add('keys', '본문 핵심 언어', !missKeys.length, keys.length ? (missKeys.length ? `빠짐: ${missKeys.join(', ')}` : keys.join(', ')) : '노트에 없음',
-      `빠진 본문 핵심 언어(${missKeys.join(', ')})를 각각 관련 대지나 요약에 굵게+밑줄로 넣으세요.`);
+      `빠진 본문 핵심 언어(${missKeys.join(', ')})를(같은 뜻·같은 맥락의 말로 풀어도 됩니다) 각각 관련 대지나 요약에 굵게+밑줄로 넣으세요.`);
     // 5. 반복·강조된 말: 노트의 weight 3 핵심어 + 받아쓰기에서 직접 센 반복 상위어(가장 많은 말의 절반 이상 나온 말, 최대 3개)
     const rep = window.MN_REPEATED || [];
     const topN = rep.length ? rep[0][1] : 0;
@@ -466,12 +515,12 @@ ${transcript}`;
     const heavy = [...new Set([...topWords, ...[...(notes.text_keys || [])].filter((k) => (k.weight || 0) >= 3).map((k) => k.key)])];
     const headsAll = norm([doc.one_line, doc.summary, body.map((b) => b.heading)]);
     // 상위어는 앞(한 줄·요약·대지 제목)에 있고 본문 전체에서도 3번 이상 써야 통과
-    const missHeavy = heavy.filter((k) => !headsAll.includes(head(k)) || (topWords.includes(k) && count(k) < 3));
+    const missHeavy = heavy.filter((k) => !found(headsAll, head(k)) || (topWords.includes(k) && count(k) + related(head(k)).reduce((a, x) => a + whole.split(x).length - 1, 0) < 3));
     add('weight', '많이 반복·강조된 말이 앞에', !missHeavy.length, (topWords.length ? `받아쓰기 반복: ${rep.slice(0, 5).map(([w, c]) => `${w} ${c}회`).join(', ')} · ` : '') + (heavy.length ? (missHeavy.length ? `앞에 없음: ${missHeavy.join(', ')}` : '모두 앞에 있음') : '해당 없음'),
       `설교에서 가장 많이 반복된 말(${missHeavy.join(', ')})을 one_line과 summary에 올리고, 대지 본문에서도 그 말이 설교에서 어떤 뜻인지(예: '사실'은 창 3:15 그리스도가 역사적 사실, '가치'는 그 사실을 내 몸에 적용해 아는 가장 귀한 것) 3번 이상 살려 쓰세요.`);
     // 6. 실제 예화·본문 해설
     const details = (notes.detail_keys || []).map(head).filter(Boolean);
-    const hitD = details.filter((k) => whole.includes(k));
+    const hitD = details.filter((k) => found(whole, k));
     const needD = Math.min(details.length, Math.max(2, Math.ceil(details.length * 0.6)));
     add('detail', '설교의 실제 예화·본문 해설', hitD.length >= needD, details.length ? `${hitD.length}/${details.length} (${hitD.join('·') || '없음'})` : '노트에 없음',
       `빠진 예화·본문 세부(${details.filter((k) => !hitD.includes(k)).join(', ')})를 관련 대지에 설교자의 표현으로 한두 문장씩 넣으세요. 일반론 문장으로 바꾸지 마세요.`);
@@ -497,8 +546,9 @@ ${transcript}`;
     }))];
     const bodyText = norm([doc.intro, body.map((b) => b.paragraphs), doc.conclusion]);
     if (tWords.length) {
-      const missT = tWords.filter((w) => !bodyText.includes(w));
-      add('title', '제목의 말을 본문에서 풂', !missT.some((w) => tPhrase.has(w)) && missT.length <= Math.floor(tWords.length * 0.25) /* 제목과 실제 흐름이 조금 다른 설교도 있어 하나쯤은 봐준다 */, missT.length ? `본론에 없음: ${missT.join(', ')}` : tWords.join(', '),
+      // 제목 말은 같은 뜻·같은 맥락의 말로 풀어도 된다(사용자 기준: 건축 = 짓다, 그리스도의 몸 = 성막·성전·거룩케 하는 말)
+      const missT = tWords.filter((w) => !found(bodyText, w));
+      add('title', '제목의 말을 본문에서 풂', !missT.some((w) => tPhrase.has(w)) && missT.length <= Math.floor(tWords.length * 0.25) /* 제목과 실제 흐름이 조금 다른 설교도 있어 하나쯤은 봐준다 */, missT.length ? `본론에 없음: ${missT.join(', ')}` : tWords.map((w) => { const f = found(bodyText, w); return f && f !== w ? `${w}(=${f})` : w; }).join(', '),
         `제목의 말(${missT.join(', ')})이 이 설교에서 무엇을 뜻하는지 설교자의 설명과 구절로 본론에 담으세요(노트의 theme_notes·sections 참고).`);
     }
     // 7-2. 중심 주제 설명 범위: 노트 theme_notes(주제에 대한 설교자의 설명·본문 해설)가 정리본에 얼마나 담겼는지
@@ -587,6 +637,7 @@ ${transcript}`;
     onStep?.(1);
     const notes = await sermonNotes(cfg, meta, transcript, profileText);
     Debug.log('notes', { notes });
+    setRelated(notes); // 이 설교에서 같은 맥락으로 쓰인 말: 점검표가 글자 대신 맥락으로 확인
     // 노트가 설교자 핵심을 비워 두면 앱이 찾은 후보 중 주제어가 든 것으로 채운다
     if (!String(notes.stated_core || '').trim() && (window.MN_CORE_CANDS || []).length) {
       const topW = (window.MN_REPEATED || []).slice(0, 3).map(([w]) => w).concat(notes.central_theme ? [String(notes.central_theme)] : []);
@@ -685,7 +736,7 @@ ${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, secti
           Debug.log('check', { round: round + 1, accepted: accept, check: again.map(({ key, ok, detail }) => ({ key, ok, detail })) });
           if (accept) { out = fixed; check = again; }
         }
-      } catch (e) { Debug.log('fix-error', { round: round + 1, message: e.message }); break; /* 고치기 실패해도 지금 결과로 진행 */ }
+      } catch (e) { Debug.log('fix-error', { round: round + 1, message: e.message }); if (!/연결|network|load failed|fetch/i.test(e.message)) break; /* 연결 문제면 다음 라운드로 한 번 더, 그 밖의 실패는 지금 결과로 진행 */ }
     }
     // 한 장을 넘으면 줄이기만 하는 단계를 한 번 더 한다(내용·표시는 그대로, 문장만 압축)
     if (check.some((c) => c.key === 'length' && !c.ok)) {
@@ -718,6 +769,8 @@ ${JSON.stringify(out, null, 1)}`;
       out.stated_core = sc;
       check = checkDoc(out, notes, theme, meta);
     }
+    if (out.stated_core) out.stated_core = tidyCore(out.stated_core);
+    out._lord = lordToChrist(out);
     // 빨강 마무리: 표시 밖에 남은 마귀·사단·저주·참소·흑암·결박 등을 빨강으로 감싼다
     out._autoRed = redAll(out);
     if (out._autoRed) check = checkDoc(out, notes, theme, meta);
