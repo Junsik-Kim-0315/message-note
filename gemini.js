@@ -346,7 +346,7 @@ ${profileText}
  "stated_points": ["설교자가 '세 가지 비밀', '첫째·둘째'처럼 직접 밝힌 요점들 (없으면 빈 배열)"],
  "theme_notes": ["중심 주제에 대해 설교자가 한 설명·의미·적용을 빠짐없이(본문 해설 포함). 제목의 말(예: 그리스도의 몸, 성막, 건축, 예물)마다 설교자가 그 말을 어떻게 풀었는지와 구절(예: 엡 1:22-23 교회는 그의 몸, 요 2:19-21 성전된 자기 육체, 히 9:11 손으로 짓지 않은 장막)을 한 항목씩"],
  "contrast": {"build": "그리스도 쪽: 이번 설교에서 붙잡고 세울 것(복음·창 3:15·영적인 것)", "break": "마귀 쪽: 그것을 막는 것, 깨뜨릴 것(사단·요 8:44·육신·뱀)", "how": "영적 싸움으로 어떻게 깨뜨리고 세우는가"},
- "intro": ["서론에서 한 말의 요지들"],
+ "intro": ["서론에서 한 말씀의 요지들(농담·외모 이야기·인사·광고·분위기 환기는 빼고 말씀 내용만)"],
  "points": [{"heading": "대지(소제목)", "claims": ["이 부분의 주장·설명 요지들"], "verses": ["인용 구절"], "illustrations": ["예화·간증 한 줄 요약"], "quotes": ["핵심 문장 원문"]}],
  "detail_keys": ["정리본에 꼭 남길 구체적 예화·인물·본문 세부를 가리키는 짧은 말 3~6개 (예: 이수정, 엘리야, 금·은·동). 핵심으로 이어지는('핵심'·'연결') 것만"],
  "break_keys": ["마귀 쪽: 주제를 막는 것을 가리키는 짧은 말 2~5개 (예: 완악함, 육신적, 질병의 저주, 참소)"],
@@ -403,7 +403,8 @@ ${transcript}`;
   // 받아쓰기 원문 핵심 문장 다듬기: 군말·호칭을 덜고 너무 길면 문장 경계에서 자른다
   function tidyCore(s) {
     let t = window.Markup.strip(String(s || '')).replace(/\s+/g, ' ').trim()
-      .replace(/^(그래서|자|여러분|그러니까)[,\s]+/g, '').replace(/(라는 게|라는 것이)\s*오늘\s*메시지의\s*핵심입니다\.?$/, '').replace(/["“”]/g, '');
+      .replace(/^(그래서|자|여러분|그러니까)[,\s]+/g, '').replace(/(라는 게|라는 것이)\s*오늘\s*메시지의\s*핵심입니다\.?$/, '').replace(/["“”]/g, '')
+      .replace(/(성막|성전|집)을 지라고/g, '$1을 지으라고'); // 받아쓰기가 '지으라고'를 '지라고'로 줄여 적는 일이 잦다
     if (t.length > 160) { const cut = t.slice(0, 160); const k = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf(','), cut.lastIndexOf(' ')); t = cut.slice(0, k > 80 ? k : 160).replace(/[,\s]+$/, '') + '…'; }
     return t;
   }
@@ -536,9 +537,35 @@ ${transcript}`;
     // 10. 한 장 분량
     const len = window.Markup.strip([doc.stated_core, doc.one_line, ...(doc.summary || []), ...(doc.intro || []), ...body.flatMap((b) => [b.heading, ...(b.paragraphs || [])]), ...(doc.conclusion || [])].join('')).length;
     const longHead = body.filter((b) => String(b.heading || '').length > 28).length;
+    // 말씀 내용이 아닌 것(농담·외모·인사·광고·분위기 환기, 설교자 행동 묘사)이 들어갔는지
+    const noiseTxt = [doc.one_line, doc.summary, doc.intro, body.map((b) => [b.heading, b.paragraphs]), doc.conclusion].flat(3).filter(Boolean).map(String);
+    const noise = noiseTxt.filter((t) => NOISE.test(window.Markup.strip(t)));
+    add('noise', '농담·광고 등 말씀 밖 내용 없음', !noise.length, noise.length ? `들어감: ${noise.map((t) => window.Markup.strip(t).match(NOISE)[0]).join(', ')}` : '없음',
+      '농담·외모 이야기·인사·광고·분위기 환기, \'설교자는 ~하며\' 같은 설교자 행동 묘사를 빼고, 그 자리에 말씀 내용(첫 본문·현실 진단)을 쓰세요.');
     add('length', '한 장 분량', len <= 2000 && !longHead, `본문 ${len}자${longHead ? `, 긴 대지 제목 ${longHead}개` : ''}`,
       `전체를 1,500~1,800자로 줄이고(덜 중요한 설명부터), 대지 제목은 15자 안팎으로 짧게 쓰세요. 통과한 항목의 핵심은 지키세요.`);
     return items;
+  }
+
+  // 말씀 밖 내용(농담·외모·인사·광고·분위기 환기)과 설교자 행동 묘사
+  const NOISE = /농담|우스갯|웃음을|웃기|가르마|헤어\s*스타일|머리\s*모양|외모|주의를\s*환기|분위기를\s*(풀|환기|띄)|광고|인사말|안부/;
+  // 점검표 점수: 한 장 분량은 무게 3(한 장을 넘기면 PDF가 깨지므로 다른 항목보다 중요)
+  const score = (ck) => ck.filter((c) => c.ok).length + (ck.find((c) => c.key === 'length')?.ok ? 2 : 0);
+  // 농담 묘사 구절을 문장·구절 단위로 지운다. 문장 전체가 농담이면 문장을 빼고, '…농담으로 주의를 환기하며 ~'면 앞 구절만 뺀다.
+  function stripNoise(doc) {
+    let n = 0;
+    const one = (t) => {
+      if (typeof t !== 'string' || !NOISE.test(t)) return t;
+      n++;
+      let cut = t;
+      for (let k = 0; k < 3 && NOISE.test(cut); k++) cut = cut.replace(/^[^.!?]*?(농담|우스갯|가르마|헤어\s*스타일|외모|주의를\s*환기|분위기를\s*\S+|광고|인사말|안부)[^.!?,]*?(하며|한\s*뒤|한\s*후|하고|하면서|으로|로)\s+/, '');
+      if (cut !== t && !NOISE.test(cut) && cut.trim().length > 15) return cut;
+      return t.split(/(?<=[.!?])\s+/).filter((s) => !NOISE.test(s)).join(' ');
+    };
+    const arr = (a) => (Array.isArray(a) ? a.map(one).filter((x) => String(x || '').trim()) : one(a));
+    doc.intro = arr(doc.intro); doc.summary = arr(doc.summary); doc.conclusion = arr(doc.conclusion);
+    (doc.body || []).forEach((b) => { b.paragraphs = arr(b.paragraphs); });
+    return n;
   }
 
   async function finalDoc(cfg, meta, transcript, onStep, profileText) {
@@ -599,7 +626,7 @@ ${mustKeys.length ? `- 받아쓰기에 나온 다음 핵심어는 정리본에 �
 - 중요도는 반복 횟수와 문맥상 강조(노트의 weight, emphasized)로 정하세요. 많이 반복되고 힘줘 말한 것일수록 one_line·summary·대지 제목과 초록 표시에 쓰고, 한두 번 스치듯 나온 것은 본문 속에 짧게만 넣으세요.
 ` : ''}- 노트의 spiritual_warfare(마귀·사단·뱀·귀신을 깨뜨리고 쫓아내는 내용)는 관련 대지 안에 녹여 빨간 표시로 꼭 드러내고, 있다면 summary에도 한 줄 넣으세요.
 - one_line과 초록 표시는 노트의 big_idea와 각 대지의 핵심 주장에서 뽑으세요(마지막 당부만으로 채우지 마세요).
-- 구체성을 지키세요: 대지마다 설교자가 실제로 든 예화·인물·사건·본문 해설 세부(예: 이수정의 마가복음 번역, 엘리야와 7천 명, 금·은·동과 실·기름·향품·보석의 의미)를 하나 이상 넣고, 설교자의 표현을 살리세요. '~해야 합니다'로 끝나는 일반론 문장만으로 채우면 잘못된 정리입니다. 서론에는 설교가 실제로 어떻게 시작했는지도 짧게 담으세요.
+- 구체성을 지키세요: 대지마다 설교자가 실제로 든 예화·인물·사건·본문 해설 세부(예: 이수정의 마가복음 번역, 엘리야와 7천 명, 금·은·동과 실·기름·향품·보석의 의미)를 하나 이상 넣고, 설교자의 표현을 살리세요. '~해야 합니다'로 끝나는 일반론 문장만으로 채우면 잘못된 정리입니다. 서론에는 설교가 실제로 어떻게 말씀으로 들어갔는지(첫 본문·첫 질문·현실 진단)를 짧게 담으세요. 단, 농담·외모 이야기·인사·광고·분위기 환기처럼 말씀 내용이 아닌 것은 서론에도 쓰지 마세요('설교자가 농담으로 주의를 환기하며' 같은 문장 금지). 정리본은 설교자의 행동 묘사가 아니라 말씀 내용만 담습니다.
 - 노트에 없는 내용을 설교자가 한 말처럼 지어내지 마세요('여러 관점'은 본문 배경 지식을 보충해도 됩니다).
 
 아래 JSON 하나만 출력하세요.
@@ -653,12 +680,37 @@ ${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, secti
         if (fixed && Array.isArray(fixed.body) && fixed.body.length) {
           const again = checkDoc(fixed, notes, theme, meta);
           // 보충한 결과가 통과 항목을 더 잃지 않았을 때만 바꾼다
-          const accept = again.filter((c) => c.ok).length >= check.filter((c) => c.ok).length;
+          const accept = score(again) >= score(check);
           Debug.log('check', { round: round + 1, accepted: accept, check: again.map(({ key, ok, detail }) => ({ key, ok, detail })) });
           if (accept) { out = fixed; check = again; }
         }
       } catch (e) { Debug.log('fix-error', { round: round + 1, message: e.message }); break; /* 고치기 실패해도 지금 결과로 진행 */ }
     }
+    // 한 장을 넘으면 줄이기만 하는 단계를 한 번 더 한다(내용·표시는 그대로, 문장만 압축)
+    if (check.some((c) => c.key === 'length' && !c.ok)) {
+      onStep?.(3, { round: 'shorten', miss: 1 });
+      try {
+        const lenNow = check.find((c) => c.key === 'length').detail;
+        const shortPrompt = `아래 설교 정리본(JSON)이 한 장을 넘습니다(${lenNow}). 본문(intro·body·conclusion·summary·one_line)을 1,600~1,800자로 줄이세요.
+- 대지 수, 대지 제목, 표시([[g|…]] [[r|…]] [[t|…]] [[v|…]] [[y|…]]), 설교자가 직접 밝힌 핵심, 예화 이름, 그리스도와 마귀의 대조 짝은 그대로 두세요.
+- 같은 말을 되풀이한 문장, 긴 인용, 수식어를 줄이세요. 여러 관점·용어 풀이·묵상 질문도 짧게 하세요.
+- 새 내용은 넣지 마세요. 같은 JSON 형식으로, JSON 하나만 출력하세요.
+${MARK_RULES}
+
+[정리본]
+${JSON.stringify(out, null, 1)}`;
+        const short = await call(cfg, cfg.anaModel, [{ text: shortPrompt }], { json: true, temperature: 0.2, thinking: 512, timeoutMs: 240000, label: 'shorten(한 장으로 줄이기)' });
+        if (short && Array.isArray(short.body) && short.body.length) {
+          const again = checkDoc(short, notes, theme, meta);
+          const lenOk = again.find((c) => c.key === 'length')?.ok;
+          const lost = check.filter((c) => c.ok).length - (again.filter((c) => c.ok).length - 1);
+          Debug.log('check', { round: 'shorten', accepted: lenOk && lost <= 1, check: again.map(({ key, ok, detail }) => ({ key, ok, detail })) });
+          if (lenOk && lost <= 1) { out = short; check = again; }
+        }
+      } catch (e) { Debug.log('fix-error', { round: 'shorten', message: e.message }); }
+    }
+    // 마지막 안전장치: 그래도 남은 농담·광고 구절은 앱이 지운다
+    if (stripNoise(out)) check = checkDoc(out, notes, theme, meta);
     // 설교자가 직접 밝힌 핵심은 모델이 바꿔 쓰거나 빼먹는 일이 잦아, 노트의 원문을 정리본에 그대로 넣는다
     const sc = tidyCore(notes.stated_core);
     if (sc && (!out.stated_core || overlap(sc, norm(out.stated_core)) < 0.6)) {

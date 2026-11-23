@@ -59,12 +59,20 @@
   };
 
   // 이번 정리의 분석 결과를 쌓는다. 같은 기록을 다시 정리하면 한 번만 센다.
+  // 농담·외모·인사·광고는 설교 패턴으로 배우지 않는다(정리본 서론에 '농담으로 주의를 환기'가 들어가던 원인)
+  const NOISE = /농담|우스갯|가르마|헤어\s*스타일|머리\s*모양|외모|주의를\s*환기|광고|인사말|안부/;
+  function dropNoise(v) {
+    if (typeof v !== 'string' || !NOISE.test(v)) return v;
+    return v.replace(/\(([^)]*)\)/g, (m, inner) => { const k = inner.split(/[·,]\s*/).filter((x) => !NOISE.test(x)); return k.length ? `(${k.join('·')})` : ''; })
+      .split(/[,·]\s*/).filter((x) => !NOISE.test(x)).join(', ').trim();
+  }
+
   function merge(profile, notes, meta, sessionId) {
     const p = JSON.parse(JSON.stringify(profile || empty(meta.preacher)));
     const st = notes?.style || {};
     for (const f of FIELDS) {
       const v = st[f];
-      p.patterns[f] = uniqPush(p.patterns[f], Array.isArray(v) ? v : [v], f === 'point_markers' || f === 'transitions' ? 12 : 6);
+      p.patterns[f] = uniqPush(p.patterns[f], (Array.isArray(v) ? v : [v]).map(dropNoise), f === 'point_markers' || f === 'transitions' ? 12 : 6);
     }
     for (const t of notes?.term_fixes || []) {
       const w = String(t.wrong || '').trim(), r = String(t.right || '').trim();
@@ -91,7 +99,7 @@
     if (p.guide?.length) lines.push('[설교 구조 지침]', ...p.guide.map((g) => `- ${g}`), '[관찰된 패턴]');
     if (p.vocab?.length) lines.push(`- 이 설교자의 핵심 어휘(정리할 때 그대로 살릴 것): ${p.vocab.join(', ')}`);
     for (const f of ['structure', 'start_cue', 'end_cue', 'intro', 'point_markers', 'transitions', 'illustrations', 'application', 'closing']) {
-      const v = p.patterns?.[f];
+      const v = (p.patterns?.[f] || []).map(dropNoise).filter(Boolean); // 예전에 쌓인 농담 패턴도 프롬프트에는 넣지 않는다
       if (v?.length) lines.push(`- ${LABELS[f]}: ${v.slice(0, f === 'point_markers' || f === 'transitions' ? 8 : 3).join(' / ')}`);
     }
     const tf = Object.entries(p.term_fixes || {});

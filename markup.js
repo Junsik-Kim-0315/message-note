@@ -37,7 +37,9 @@
       if (inMark || !DEVIL.test(t)) return t;
       // 바로 앞 표시에 붙은 조사('…]]으로 성전을')는 그대로 두고 그 뒤부터 본다
       if (si > 0 && segs[si - 1][0] && /^[^\s.,!?]/.test(t)) {
-        const k = t.search(/[\s.,!?]/);
+        // '…]]할 때 세상 신의' 처럼 앞말에 매인 '때·것·수' 같은 말까지 건너뛴다
+        const m0 = t.match(/^[^\s.,!?]+(\s+(때|것|수|줄|뿐|중|데|만큼|대로)(?=[\s,.]|[은는이가을를에도]))?/);
+        const k = m0 ? m0[0].length : -1;
         if (k > 0) { const [o, m] = autoRed(t.slice(k)); n += m; return t.slice(0, k) + o; }
         return t;
       }
