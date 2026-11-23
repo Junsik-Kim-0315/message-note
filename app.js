@@ -837,7 +837,12 @@
     finalBusy = true;
     autoSaveTranscript();
     showTab('result');
-    flow(1, 'done'); flow(2, 'active', '최종 정리 중 (1/2)', '설교 부분을 찾아 처음부터 끝까지 흐름을 파악하고 있어요');
+    // 최종 정리 3단계: 1 노트 분석 → 2 정리본 작성 → 3 점검·보완 (위 막대도 1/3, 2/3, 3/3로 채운다)
+    const finalStep = (n, title, detail) => {
+      flow(2, 'active', `최종 정리 ${n}/3 · ${title}`, detail);
+      const bar = $('progress'); bar.querySelector('.fill').style.width = `${Math.round((n / 3) * 100)}%`;
+    };
+    flow(1, 'done'); finalStep(1, '노트 분석', '설교 부분을 찾아 처음부터 끝까지 흐름과 핵심을 파악하고 있어요');
     $('resEmpty').hidden = false; $('resEmpty').textContent = '설교 전체를 다시 읽고 정리하고 있어요. 보통 2~3분, 90분이 넘는 설교는 5~10분 걸려요.';
     try {
       const meta = readMeta();
@@ -848,9 +853,9 @@
       window.MN_CORE_CANDS = Learn.coreCands(cleaned.text.length > 50 ? cleaned.text : text); // 설교자가 밝힌 핵심 후보 문장
       window.MN_REPEATED = Learn.repeated(cleaned.text.length > 50 ? cleaned.text : text, 10); // 직접 센 반복 상위어 [[말, 횟수]]
       window.MN_SIGNALS = Learn.signals(cleaned.text.length > 50 ? cleaned.text : text); // 설교자가 결론지은 문장(문맥 신호)
-      const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n) => {
-        if (n === 2) flow(2, 'active', '최종 정리 중 (2/2)', '한 장으로 정리하고 색깔 표시를 넣고 있어요');
-        if (n === 3) flow(2, 'active', '최종 정리 점검·보충 중', '점검표에서 빠진 항목만 보충하고 있어요');
+      const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n, info) => {
+        if (n === 2) finalStep(2, '정리본 작성', '한 장으로 정리하고 색깔 표시를 넣고 있어요');
+        if (n === 3) finalStep(3, '점검·보완', info?.round ? `점검표에서 빠진 ${info.miss}개 항목을 보완하고 있어요 (보완 ${info.round}회째, 최대 3회)` : '점검표로 빠진 곳이 없는지 확인하고 있어요');
       }, Learn.toText(profile));
       // 이번 설교의 구조·용어 교정을 쌓아 다음 정리에 반영
       const learned = Learn.merge(profile, doc._notes, { ...meta, title: meta.title || doc.title }, S.id);

@@ -628,13 +628,14 @@ ${profileText}
 [설교 노트]
 ${JSON.stringify(notes, null, 1)}`;
     const doc = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000, label: 'doc(2단계 한 장 정리)' });
-    // 점검표로 한꺼번에 검사하고, 빠진 항목만 보충한다(최대 2번). 이미 맞는 부분은 그대로 둔다.
+    // 점검표로 한꺼번에 검사하고, 빠진 항목만 보충한다(최대 3번). 이미 맞는 부분은 그대로 둔다.
     let out = doc;
+    onStep?.(3);
     let check = checkDoc(out, notes, theme, meta);
     Debug.log('check', { round: 0, theme, mustKeys: counted, check: check.map(({ key, ok, detail }) => ({ key, ok, detail })) });
     for (let round = 0; round < 3 && check.some((c) => !c.ok); round++) {
-      onStep?.(3);
       const miss = check.filter((c) => !c.ok);
+      onStep?.(3, { round: round + 1, miss: miss.length });
       try {
         const fixPrompt = `아래 설교 정리본(JSON)을 점검표로 검사했더니 다음 항목이 빠졌거나 약합니다.
 ${miss.map((c, i) => `${i + 1}. ${c.label}: ${c.detail}\n   → ${c.fix}`).join('\n')}
