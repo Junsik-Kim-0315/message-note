@@ -370,11 +370,18 @@ ${transcript}`;
   // 조사·어미가 달라도 잡히게 두 글자 묶음이 얼마나 겹치는지로 본다
   const grams = (s) => { const t = norm(s).replace(/[^가-힣A-Za-z0-9]/g, ''); const out = new Set(); for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2)); return [...out]; };
   const overlap = (s, whole) => { const g2 = grams(s); if (!g2.length) return 1; return g2.filter((x) => whole.includes(x)).length / g2.length; };
+  // 받아쓰기 원문 핵심 문장 다듬기: 군말·호칭을 덜고 너무 길면 문장 경계에서 자른다
+  function tidyCore(s) {
+    let t = window.Markup.strip(String(s || '')).replace(/\s+/g, ' ').trim()
+      .replace(/^(그래서|자|여러분|그러니까)[,\s]+/g, '').replace(/(라는 게|라는 것이)\s*오늘\s*메시지의\s*핵심입니다\.?$/, '').replace(/["“”]/g, '');
+    if (t.length > 160) { const cut = t.slice(0, 160); const k = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf(','), cut.lastIndexOf(' ')); t = cut.slice(0, k > 80 ? k : 160).replace(/[,\s]+$/, '') + '…'; }
+    return t;
+  }
   function checkDoc(doc, notes, theme) {
     const items = [];
     const add = (key, label, ok, detail, fix) => items.push({ key, label, ok: !!ok, detail, fix });
     const body = Array.isArray(doc.body) ? doc.body : [];
-    const whole = norm({ t: doc.title, o: doc.one_line, s: doc.summary, i: doc.intro, b: body, c: doc.conclusion, k: doc.key_terms });
+    const whole = norm({ sc: doc.stated_core, t: doc.title, o: doc.one_line, s: doc.summary, i: doc.intro, b: body, c: doc.conclusion, k: doc.key_terms });
     const top = norm([doc.title, doc.one_line, doc.summary]);
     const count = (w) => (w ? whole.split(head(w)).length - 1 : 0);
 
@@ -461,9 +468,9 @@ ${transcript}`;
         `summary 3줄을 설교의 실제 흐름대로 쓰세요: ① ${f3.grace} ② ${f3.fight} ③ ${f3.life}`);
     }
     // 10. 한 장 분량
-    const len = window.Markup.strip([doc.one_line, ...(doc.summary || []), ...(doc.intro || []), ...body.flatMap((b) => [b.heading, ...(b.paragraphs || [])]), ...(doc.conclusion || [])].join('')).length;
+    const len = window.Markup.strip([doc.stated_core, doc.one_line, ...(doc.summary || []), ...(doc.intro || []), ...body.flatMap((b) => [b.heading, ...(b.paragraphs || [])]), ...(doc.conclusion || [])].join('')).length;
     const longHead = body.filter((b) => String(b.heading || '').length > 28).length;
-    add('length', '한 장 분량', len <= 1800 && !longHead, `본문 ${len}자${longHead ? `, 긴 대지 제목 ${longHead}개` : ''}`,
+    add('length', '한 장 분량', len <= 2000 && !longHead, `본문 ${len}자${longHead ? `, 긴 대지 제목 ${longHead}개` : ''}`,
       `전체를 1,300~1,600자로 줄이고(덜 중요한 설명부터), 대지 제목은 15자 안팎으로 짧게 쓰세요. 통과한 항목의 핵심은 지키세요.`);
     return items;
   }
@@ -515,6 +522,7 @@ ${mustKeys.length ? `- 받아쓰기에 나온 다음 핵심어는 정리본에 �
  "scriptures": ["설교에서 인용된 구절들"],
  "category": "주제 분류 하나 (예: 믿음, 기도, 구원, 영적 전쟁, 공동체, 고난, 감사, 선교, 성품, 예배, 가정 중 가장 알맞은 것 또는 새 분류)",
  "tags": ["주제 태그 3~6개"],
+ "stated_core": "설교자가 '오늘 메시지의 핵심', '이 비밀을 알아야 돼요'처럼 직접 밝힌 핵심 문장을 원문 그대로(오타·군더더기만 고쳐, 120자 안팎). 노트의 stated_core. 없으면 빈 문자열",
  "one_line": "설교 핵심 한 문장(표시 문법 가능)",
  "summary": ["한눈에 보는 요약 3줄"],
  "intro": ["서론 1문단"],
@@ -559,6 +567,12 @@ ${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, secti
           if (again.filter((c) => c.ok).length >= check.filter((c) => c.ok).length) { out = fixed; check = again; }
         }
       } catch (e) { break; /* 고치기 실패해도 지금 결과로 진행 */ }
+    }
+    // 설교자가 직접 밝힌 핵심은 모델이 바꿔 쓰거나 빼먹는 일이 잦아, 노트의 원문을 정리본에 그대로 넣는다
+    const sc = tidyCore(notes.stated_core);
+    if (sc && (!out.stated_core || overlap(sc, norm(out.stated_core)) < 0.6)) {
+      out.stated_core = sc;
+      check = checkDoc(out, notes, theme);
     }
     out._check = check.map(({ key, label, ok, detail }) => ({ key, label, ok, detail }));
     out._notes = notes;

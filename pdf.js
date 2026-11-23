@@ -25,7 +25,9 @@
       <span><span class="m-y">노랑</span> 중요한 문장</span>
       <span><span class="m-t">굵게+밑줄</span> 핵심 용어</span>
       <span><span class="m-v">파랑</span> 성경 구절</span></div>`);
-    b.push(`<div class="summary-box"><div class="one">${mark(d.one_line || '')}</div>${drop.has('summary') ? '' : bullets(d.summary)}</div>`);
+    // 설교자가 직접 밝힌 핵심은 원문 그대로 한 줄로 늘 보여 준다
+    const core = String(d.stated_core || '').trim();
+    b.push(`<div class="summary-box">${core ? `<div class="core">설교자가 밝힌 핵심 <q>${mark(core)}</q></div>` : ''}<div class="one">${mark(d.one_line || '')}</div>${drop.has('summary') ? '' : bullets(d.summary)}</div>`);
     const tags = arr(d.tags);
     if (!drop.has('tags') && (tags.length || d.category || arr(d.scriptures).length)) {
       b.push(`<div class="tagline">${d.category ? `분류 <b>${esc(d.category)}</b> · ` : ''}${tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}${arr(d.scriptures).length ? ` <span class="m-v">${arr(d.scriptures).map(esc).join(', ')}</span>` : ''}</div>`);
