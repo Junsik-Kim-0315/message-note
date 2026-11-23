@@ -4,7 +4,7 @@
   const CORE_KEYS = ['그리스도', '복음', '영적 싸움', '재창조'];
   const MARK_RULES = `색깔 표시 문법(문장 안에 그대로 넣기):
 - [[g|...]] 초록 형광: 그리스도 쪽 핵심 메시지(복음, 창 3:15, 영적 싸움에서 이김, 재창조, 성막·헌신 등). 문서 전체에서 6~10곳.
-- [[r|...]] 빨간 형광: 마귀·사단·사탄·뱀(옛 뱀, 창 3장의 뱀)·귀신·악한 영·흑암의 권세·정사와 권세·저주·참소와 관련된 핵심 내용과 구절(예: 요 8:44, 요일 3:8, 창 3:15 '뱀의 머리', 엡 6:10-18, 마 12:28-29, 눅 10:19). 특히 '깨뜨리다·내어쫓다·박살 내다·결박하다·멸하다·떠나가라·~할지어다' 같은 대적·선포 표현과 함께 나오면 반드시 빨강으로 표시한다. 설교에 이런 내용이 있으면 본론과 요약에 빠뜨리지 말고, 없을 때만 쓰지 않는다.
+- [[r|...]] 빨간 형광: 마귀·사단·사탄·뱀(옛 뱀, 창 3장의 뱀)·귀신·악한 영·흑암의 권세·정사와 권세·저주·참소와 관련된 핵심 내용과 구절(예: 요 8:44, 요일 3:8, 창 3:15 '뱀의 머리', 엡 6:10-18, 마 12:28-29, 눅 10:19). 특히 '깨뜨리다·내어쫓다·박살 내다·결박하다·멸하다·떠나가라·~할지어다' 같은 대적·선포 표현과 함께 나오면 반드시 빨강으로 표시한다. 빨강은 개수 제한이 없다: 요약·서론·대지·결론·관점·질문 어디서든 마귀 쪽(사단·뱀·귀신·흑암·저주·참소·광명한 천사·세상 신, 성막을 짓지 못하게 막는 것)이 나올 때마다 빨강으로 표시한다. 설교에 이런 내용이 있으면 본론과 요약에 빠뜨리지 말고, 없을 때만 쓰지 않는다.
 - [[y|...]] 노란 형광: 각 대지에서 중요한 문장. 대지마다 1~3곳.
 - [[t|...]] 핵심 용어(굵게+밑줄): 은혜, 언약, 회개 같은 신앙 핵심 용어가 처음 나올 때.
 - [[v|...]] 성경 구절 인용: 예) [[v|요한복음 3:16]] 또는 인용된 말씀 본문.
@@ -314,7 +314,7 @@ ${profileText}
  "flow3": {"grace": "① 감사: 하나님이 이미 해 주신 것, 복음의 사실(창 3:15, 십자가, 재창조)", "fight": "② 한 주간: 무엇(마귀·육신·요 8:44)에 빠져 하나님을 잃어버리고, 어떻게 돌이켜 영적 싸움으로 이기는가", "life": "③ 그리하여: 어떤 삶·사명으로 열매 맺는가"},
  "stated_core": "설교자가 '오늘 메시지의 핵심', '오늘 본문은' 처럼 직접 밝힌 핵심 문장 원문 (없으면 빈 문자열)",
  "stated_points": ["설교자가 '세 가지 비밀', '첫째·둘째'처럼 직접 밝힌 요점들 (없으면 빈 배열)"],
- "theme_notes": ["중심 주제에 대해 설교자가 한 설명·의미·적용을 빠짐없이(본문 해설 포함)"],
+ "theme_notes": ["중심 주제에 대해 설교자가 한 설명·의미·적용을 빠짐없이(본문 해설 포함). 제목의 말(예: 그리스도의 몸, 성막, 건축, 예물)마다 설교자가 그 말을 어떻게 풀었는지와 구절(예: 엡 1:22-23 교회는 그의 몸, 요 2:19-21 성전된 자기 육체, 히 9:11 손으로 짓지 않은 장막)을 한 항목씩"],
  "contrast": {"build": "그리스도 쪽: 이번 설교에서 붙잡고 세울 것(복음·창 3:15·영적인 것)", "break": "마귀 쪽: 그것을 막는 것, 깨뜨릴 것(사단·요 8:44·육신·뱀)", "how": "영적 싸움으로 어떻게 깨뜨리고 세우는가"},
  "intro": ["서론에서 한 말의 요지들"],
  "points": [{"heading": "대지(소제목)", "claims": ["이 부분의 주장·설명 요지들"], "verses": ["인용 구절"], "illustrations": ["예화·간증 한 줄 요약"], "quotes": ["핵심 문장 원문"]}],
@@ -377,7 +377,16 @@ ${transcript}`;
     if (t.length > 160) { const cut = t.slice(0, 160); const k = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf(','), cut.lastIndexOf(' ')); t = cut.slice(0, k > 80 ? k : 160).replace(/[,\s]+$/, '') + '…'; }
     return t;
   }
-  function checkDoc(doc, notes, theme) {
+  function redAll(doc) {
+    let n = 0;
+    const R = (s) => { if (typeof s !== 'string') return s; const [o, k] = window.Markup.autoRed(s); n += k; return o; };
+    const A = (a) => (Array.isArray(a) ? a.map(R) : R(a));
+    doc.one_line = R(doc.one_line); doc.summary = A(doc.summary); doc.intro = A(doc.intro); doc.conclusion = A(doc.conclusion); doc.questions = A(doc.questions);
+    (doc.body || []).forEach((b) => { b.paragraphs = A(b.paragraphs); });
+    if (doc.perspectives) for (const k of Object.keys(doc.perspectives)) doc.perspectives[k] = A(doc.perspectives[k]);
+    return n;
+  }
+  function checkDoc(doc, notes, theme, meta = {}) {
     const items = [];
     const add = (key, label, ok, detail, fix) => items.push({ key, label, ok: !!ok, detail, fix });
     const body = Array.isArray(doc.body) ? doc.body : [];
@@ -405,10 +414,15 @@ ${transcript}`;
     const breakKeys = (notes.break_keys || []).map(head).filter(Boolean);
     const hitBreak = breakKeys.filter((k) => whole.includes(k));
     const devilHead = body.some((b) => /마귀|사단|사탄|원수|뱀|막는|못하게|굴레|요8:44|육신|흑암|중독|잃게|빼앗/.test(norm(b.heading)));
-    const okDevil = red.length >= 3 && devilHead && (!breakKeys.length || hitBreak.length >= Math.min(2, breakKeys.length)) && /마귀|사단|사탄|막|못하게|굴레|요8:44|육신|흑암|중독/.test(top);
+    // 노트의 spiritual_warfare(대적·선포·마귀 관련 발언)가 정리본 빨강에 얼마나 담겼는지
+    const sw = (notes.spiritual_warfare || []).filter((x) => String(x).length >= 8);
+    const redText = norm(red);
+    const swHit = sw.filter((x) => overlap(x, redText) >= 0.3).length;
+    const swOk = sw.length < 2 || swHit >= Math.ceil(sw.length * 0.6);
+    const okDevil = red.length >= 3 && devilHead && swOk && (!breakKeys.length || hitBreak.length >= Math.min(2, breakKeys.length)) && /마귀|사단|사탄|막|못하게|굴레|요8:44|육신|흑암|중독/.test(top);
     add('devil', '마귀 쪽 (막고 빼앗는 것과 깨뜨림)', okDevil,
-      `빨강 ${red.length}곳, 마귀 대지 ${devilHead ? '있음' : '없음'}, 막는 것 ${hitBreak.join('·') || '없음'}${breakKeys.length ? `/${breakKeys.length}` : ''}`,
-      `본론에 '무엇이「${theme}」${eul(theme)} 막는가와 그리스도의 이름으로 깨뜨림' 대지를 두고(제목에 마귀·사단 또는 '막는'이 드러나게), summary에도 한 줄 넣으세요. 노트의 contrast.break, break_keys(${breakKeys.join(', ')}), spiritual_warfare의 대적·선포를 빨강으로 담으세요.`);
+      `빨강 ${red.length}곳${doc._autoRed ? `(앱이 ${doc._autoRed}곳 보충)` : ''}, 마귀 관련 발언 ${swHit}/${sw.length}, 마귀 대지 ${devilHead ? '있음' : '없음'}, 막는 것 ${hitBreak.join('·') || '없음'}${breakKeys.length ? `/${breakKeys.length}` : ''}`,
+      `본론에 '무엇이「${theme}」${eul(theme)} 막는가와 그리스도의 이름으로 깨뜨림' 대지를 두고(제목에 마귀·사단 또는 '막는'이 드러나게), summary에도 한 줄 넣으세요. 노트의 contrast.break, break_keys(${breakKeys.join(', ')}), spiritual_warfare의 대적·선포를 빨강으로 담으세요. 빠진 마귀 관련 발언: ${sw.filter((x) => overlap(x, redText) < 0.3).slice(0, 4).join(' / ')}`);
     // 4. 본문 핵심 언어
     const keys = (notes.text_keys || []).map((k) => k.key).filter(Boolean);
     const missKeys = keys.filter((k) => !whole.includes(head(k)));
@@ -441,6 +455,28 @@ ${transcript}`;
       add('stated', '설교자가 직접 밝힌 핵심·요점', coreOk && spHit >= Math.ceil(sp.length * 0.7), `${core ? (coreOk ? '핵심 반영' : '핵심 빠짐') : ''}${sp.length ? ` 요점 ${spHit}/${sp.length}` : ''}`.trim(),
         `설교자가 직접 밝힌 핵심("${core}")을 one_line에 살리고, 요점(${sp.join(' / ')})을 대지나 summary에 드러내세요.`);
     }
+    // 7-1. 제목의 말: 사용자가 적은 제목의 낱말(예: 그리스도의 몸, 성막, 건축, 예물)이 본론에서 설명되는지
+    // 쉼표로 나눈 짧은 구(예: '그리스도의 몸')는 통째로, 긴 구는 낱말로 본다
+    const SKIP = /^(위해|위한|의미|하는|드리는|이르게|하게|통해|대한|오늘|하나님|그리스도|예수|찾아)$/;
+    const tPhrase = new Set(); // 제목 앞머리의 짧은 구는 제목의 중심이라 반드시 풀어야 한다
+    const tWords = [...new Set(String(meta.title || '').split(/[,·:]/).flatMap((ph) => {
+      const t = ph.trim(); if (!t) return [];
+      if (t.replace(/\s+/g, '').length <= 7 && /\s/.test(t)) { const k = t.replace(/\s+/g, ''); tPhrase.add(k); return [k]; }
+      return t.split(/\s+/).filter((w) => !SKIP.test(w)).map((w) => w.replace(/(을|를|의|이|가|은|는|에|와|과|도|으로|로)$/, '')).filter((w) => w.length >= 2 && !SKIP.test(w));
+    }))];
+    const bodyText = norm([doc.intro, body.map((b) => b.paragraphs), doc.conclusion]);
+    if (tWords.length) {
+      const missT = tWords.filter((w) => !bodyText.includes(w));
+      add('title', '제목의 말을 본문에서 풂', !missT.some((w) => tPhrase.has(w)) && missT.length <= Math.floor(tWords.length * 0.25) /* 제목과 실제 흐름이 조금 다른 설교도 있어 하나쯤은 봐준다 */, missT.length ? `본론에 없음: ${missT.join(', ')}` : tWords.join(', '),
+        `제목의 말(${missT.join(', ')})이 이 설교에서 무엇을 뜻하는지 설교자의 설명과 구절로 본론에 담으세요(노트의 theme_notes·sections 참고).`);
+    }
+    // 7-2. 중심 주제 설명 범위: 노트 theme_notes(주제에 대한 설교자의 설명·본문 해설)가 정리본에 얼마나 담겼는지
+    const tn = (notes.theme_notes || []).filter((x) => String(x).length >= 8);
+    if (tn.length >= 3) {
+      const missN = tn.filter((x) => overlap(x, whole) < 0.4);
+      add('themeNotes', `중심 주제 설명 (${theme || '주제'})`, missN.length <= Math.floor(tn.length * 0.3), `${tn.length - missN.length}/${tn.length}`,
+        `중심 주제에 대한 설교자의 다음 설명을 관련 대지에 담으세요(대지를 하나 더 만들어도 됩니다): ${missN.join(' / ')}`);
+    }
     // 8. 문맥: 단락마다 설교자가 진단한 문제와 해답의 핵심어가 정리본에 남았는지 (중간 단락이 묻히지 않게)
     const secs = (notes.sections || []).filter((x) => (x.keys || []).length && !/곁가지/.test(x.role || ''));
     if (secs.length >= 2) {
@@ -471,7 +507,7 @@ ${transcript}`;
     const len = window.Markup.strip([doc.stated_core, doc.one_line, ...(doc.summary || []), ...(doc.intro || []), ...body.flatMap((b) => [b.heading, ...(b.paragraphs || [])]), ...(doc.conclusion || [])].join('')).length;
     const longHead = body.filter((b) => String(b.heading || '').length > 28).length;
     add('length', '한 장 분량', len <= 2000 && !longHead, `본문 ${len}자${longHead ? `, 긴 대지 제목 ${longHead}개` : ''}`,
-      `전체를 1,300~1,600자로 줄이고(덜 중요한 설명부터), 대지 제목은 15자 안팎으로 짧게 쓰세요. 통과한 항목의 핵심은 지키세요.`);
+      `전체를 1,500~1,800자로 줄이고(덜 중요한 설명부터), 대지 제목은 15자 안팎으로 짧게 쓰세요. 통과한 항목의 핵심은 지키세요.`);
     return items;
   }
 
@@ -532,7 +568,7 @@ ${mustKeys.length ? `- 받아쓰기에 나온 다음 핵심어는 정리본에 �
  "key_terms": [{"term": "용어", "meaning": "설교에서의 의미"}],
  "questions": ["묵상·적용 질문 2~3개"]
 }
-분량(전체 1,300~1,500자): summary 3줄 / intro 2~3문장 / body 대지 2~4개, 대지마다 1문단 3~4문장 / conclusion 2문장 / key_terms 최대 3개.
+분량(전체 1,400~1,800자): summary 3줄 / intro 2~3문장 / body 대지 3~5개(중심 주제·제목의 말을 풀려면 대지를 늘리세요), 대지마다 1문단 3~4문장 / conclusion 2문장 / key_terms 최대 3개.
 문장은 설교자의 말투를 살리되 간결한 문어체로 쓰세요.
 ${profileText ? `[이 설교자의 평소 설교 구조 — 대지 구분과 비중을 정할 때 참고]
 ${profileText}
@@ -543,7 +579,7 @@ ${JSON.stringify(notes, null, 1)}`;
     const doc = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000 });
     // 점검표로 한꺼번에 검사하고, 빠진 항목만 보충한다(최대 2번). 이미 맞는 부분은 그대로 둔다.
     let out = doc;
-    let check = checkDoc(out, notes, theme);
+    let check = checkDoc(out, notes, theme, meta);
     for (let round = 0; round < 2 && check.some((c) => !c.ok); round++) {
       onStep?.(3);
       const miss = check.filter((c) => !c.ok);
@@ -552,7 +588,7 @@ ${JSON.stringify(notes, null, 1)}`;
 ${miss.map((c, i) => `${i + 1}. ${c.label}: ${c.detail}\n   → ${c.fix}`).join('\n')}
 
 이미 통과한 항목(${check.filter((c) => c.ok).map((c) => c.label).join(', ') || '없음'})은 그대로 지키세요. 기존 문장·표시·예화를 지우거나 일반론으로 바꾸지 말고, 빠진 것만 보충하세요.
-전체 분량(1,300~1,600자)과 대지 제목 길이(15자 안팎)는 지키세요. 보충한 만큼 다른 문장을 줄이고, 한 장에 넘치면 여러 관점·용어 풀이·묵상 질문을 줄이세요. 같은 JSON 형식과 표시 문법으로, JSON 하나만 출력하세요.
+전체 분량(1,400~1,800자)과 대지 제목 길이(15자 안팎)는 지키세요. 보충한 만큼 다른 문장을 줄이고, 한 장에 넘치면 여러 관점·용어 풀이·묵상 질문을 줄이세요. 같은 JSON 형식과 표시 문법으로, JSON 하나만 출력하세요.
 ${MARK_RULES}
 
 [정리본]
@@ -562,7 +598,7 @@ ${JSON.stringify(out, null, 1)}
 ${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, sections: notes.sections, theme_notes: notes.theme_notes, contrast: notes.contrast, break_keys: notes.break_keys, spiritual_warfare: notes.spiritual_warfare, christ_side: notes.christ_side, text_keys: notes.text_keys, detail_keys: notes.detail_keys, points: notes.points }, null, 1)}`;
         const fixed = await call(cfg, cfg.anaModel, [{ text: fixPrompt }], { json: true, temperature: 0.2, thinking: 1024, timeoutMs: 300000 });
         if (fixed && Array.isArray(fixed.body) && fixed.body.length) {
-          const again = checkDoc(fixed, notes, theme);
+          const again = checkDoc(fixed, notes, theme, meta);
           // 보충한 결과가 통과 항목을 더 잃지 않았을 때만 바꾼다
           if (again.filter((c) => c.ok).length >= check.filter((c) => c.ok).length) { out = fixed; check = again; }
         }
@@ -572,8 +608,11 @@ ${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, secti
     const sc = tidyCore(notes.stated_core);
     if (sc && (!out.stated_core || overlap(sc, norm(out.stated_core)) < 0.6)) {
       out.stated_core = sc;
-      check = checkDoc(out, notes, theme);
+      check = checkDoc(out, notes, theme, meta);
     }
+    // 빨강 마무리: 표시 밖에 남은 마귀·사단·저주·참소·흑암·결박 등을 빨강으로 감싼다
+    out._autoRed = redAll(out);
+    if (out._autoRed) check = checkDoc(out, notes, theme, meta);
     out._check = check.map(({ key, label, ok, detail }) => ({ key, label, ok, detail }));
     out._notes = notes;
     out._theme = theme;
