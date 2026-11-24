@@ -239,3 +239,38 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .summary-box .core q { font-weight: 700; color: #1d2a24; quotes: "“" "”"; }
 
 .link-btn { background: none; border: 0; padding: 4px 0; font: inherit; font-size: 13px; color: var(--muted); text-decoration: underline; cursor: pointer; }
+
+/* 말씀 대화 (A2UI) */
+.chat-box { margin: 12px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.chat-box[hidden] { display: none; }
+.chat-h { display: flex; align-items: baseline; gap: 8px; }
+.chat-h .hint { flex: 1; min-width: 0; }
+.chat-log { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+.chat-turn { line-height: 1.6; font-size: 15px; }
+.chat-turn.user { align-self: flex-end; max-width: 85%; background: var(--accent); color: var(--accent-ink); border-radius: 14px 14px 4px 14px; padding: 8px 12px; white-space: pre-wrap; }
+.chat-turn.bot { align-self: stretch; }
+.chat-turn.wait { color: var(--muted); font-size: 14px; }
+.chat-turn.err { color: var(--rec); font-size: 14px; }
+.chat-sugg { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chat-sugg[hidden] { display: none; }
+.chat-form { display: flex; gap: 8px; align-items: flex-end; }
+.chat-form textarea { flex: 1; min-width: 0; resize: none; font: inherit; font-size: 16px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); }
+.a2ui-surface { display: block; }
+.a2ui-column, .a2ui-list { display: flex; flex-direction: column; gap: 8px; }
+.a2ui-row { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; align-items: center; }
+.a2ui-row[data-justify="end"] { justify-content: flex-end; }
+.a2ui-row[data-justify="spaceBetween"] { justify-content: space-between; }
+.a2ui-card { border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--bg); }
+.a2ui-card[data-tone="green"] { border-left-color: #2e9a5c; }
+.a2ui-card[data-tone="red"] { border-left-color: var(--rec); }
+.a2ui-card[data-tone="yellow"] { border-left-color: #d9b400; }
+.a2ui-text { margin: 0; overflow-wrap: anywhere; word-break: keep-all; }
+h4.a2ui-text { font-size: 17px; } h5.a2ui-text { font-size: 15.5px; } h6.a2ui-text { font-size: 14.5px; }
+.a2ui-caption { font-size: 13px; color: var(--muted); }
+.a2ui-divider { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+.a2ui-icon { display: inline-block; margin-right: 4px; }
+.a2ui-check { display: flex; gap: 8px; align-items: flex-start; }
+.a2ui-button .a2ui-text { display: inline; }
+.a2ui-borderless { border-color: transparent; background: none; }
+.a2ui-tabbar { display: flex; gap: 6px; margin-bottom: 8px; }
+.a2ui-tabbar .on { border-color: var(--accent); color: var(--accent); font-weight: 700; }

@@ -827,9 +827,53 @@ ${JSON.stringify(src, null, 1)}`;
     return String(r.paragraph || '').trim();
   }
 
+  // ---------- 말씀 대화 (A2UI 1.0 답변) ----------
+  // 사용자의 질문(또는 버튼 action)에 Gemini가 A2UI 메시지 목록으로 답한다. 앱의 a2ui.js가 그린다.
+  async function chat(cfg, meta, ctx, history, input) {
+    const sid = `t${Date.now().toString(36)}`;
+    const hist = (history || []).slice(-8).map((h) => `${h.role === 'user' ? '사용자' : '앱(이전 답의 글)'}: ${h.text}`).join('\n');
+    const ask = input.action
+      ? `사용자가 이전 답 화면의 버튼을 눌렀습니다(A2UI action): ${JSON.stringify(input.action)}`
+      : `사용자 질문: ${input.text}`;
+    const prompt = `당신은 한국 교회 설교를 함께 묵상하고 정리해 주는 도우미입니다. 아래 설교 자료를 근거로 사용자의 질문에 답하세요.
+${infoLine(meta)}
+관점: 말씀은 언제나 그리스도(복음, 창 3:15, 영적인 것, 영적 싸움)와 마귀(사단, 요 8:44, 육신, 뱀)의 대립과 싸움입니다. 설교자가 하지 않은 말을 지어내지 말고, 자료에 없으면 없다고 하세요. 호칭은 '주님' 대신 '그리스도'.
+${MARK_RULES}
+대화에서는 초록·빨강을 꼭 필요한 곳에만 짧게 쓰세요.
+
+[답하는 형식: A2UI 1.0]
+화면을 A2UI 1.0 메시지 배열로 보냅니다. 아래 JSON 하나만 출력하세요:
+{"say": "답의 요지를 한두 문장 평문으로(대화 기록용)", "messages": [
+ {"version":"1.0","createSurface":{"surfaceId":"${sid}","catalogId":"${'https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json'}"}},
+ {"version":"1.0","updateComponents":{"surfaceId":"${sid}","components":[ ... ]}},
+ (필요하면) {"version":"1.0","updateDataModel":{"surfaceId":"${sid}","path":"/","value":{ ... }}}
+]}
+규칙:
+- surfaceId는 반드시 "${sid}". components는 평평한 목록이고 각 항목은 {"id": "...", "component": "종류", ...}. 맨 위는 id "root".
+- 쓸 수 있는 종류(기본 카탈로그 일부): Text{text, variant: h2|h3|h4|body|caption}, Column{children:[id...]}, Row{children}, List{children}, Card{child: 하나의 id, tone: green|red|yellow(앱 확장, 선택)}, Divider{}, Icon{name: check|star|warning|info|book|cross|lightbulb}, CheckBox{label, value:{"@path":"/..."}}, Button{child: Text의 id, variant: primary|default|borderless, action:{"event":{"name":"...","context":{...},"userMessage":"버튼을 누르면 대화에 보일 말"}}}.
+- 반복되는 목록은 children 대신 {"componentId":"틀 id","path":"/items"}로 쓰고 틀 안에서는 {"@path":"text"}처럼 상대 경로로 데이터를 읽습니다. 값을 데이터에서 읽을 때는 {"@path":"/절대/경로"}.
+- Text 안에는 색깔 표시 문법을 그대로 써도 됩니다.
+- 답은 휴대폰 한 화면 안팎으로 짧게. 구절·대지·대조 쌍처럼 나눌 수 있으면 Card로 나누세요. 그리스도 쪽은 tone green, 마귀 쪽 대조는 tone red.
+- 끝에 이어서 할 만한 버튼을 1~3개 두세요. action.event.name 예: "more"(더 자세히), "contrast"(그리스도↔마귀 대조로 보기), "prayer"(기도문으로), "apply"(삶에 적용). context에 무엇에 대한 것인지(예: {"topic":"둘째 대지"}) 넣으세요.
+- 앱이 직접 처리하는 이름: "copy_text"(context.text를 복사), "show_doc"(정리본 화면으로 이동). 복사할 만한 결과(기도문 등)에는 copy_text 버튼을 붙이세요.
+
+[설교 자료]
+${JSON.stringify(ctx.material, null, 1)}
+${ctx.transcript ? `\n[받아쓰기(일부일 수 있음)]\n${ctx.transcript}` : ''}
+
+${hist ? `[지난 대화]\n${hist}\n` : ''}
+${ask}`;
+    Debug.begin('chat', { meta: { ...meta }, input });
+    let r;
+    try { r = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.4, thinking: 512, timeoutMs: 180000, label: 'chat(말씀 대화)' }); Debug.end('ok'); }
+    catch (e) { Debug.end('error'); throw e; }
+    const messages = Array.isArray(r) ? r : Array.isArray(r.messages) ? r.messages : [];
+    return { say: String(r.say || '').trim(), messages, surfaceId: sid };
+  }
+
   async function ping(cfg) {
     return call(cfg, cfg.anaModel, [{ text: '“확인”이라고만 답하세요.' }], { temperature: 0, timeoutMs: 30000 });
   }
 
-  window.Gemini = { transcribe, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, checkDoc, pickRef, refClauses, ping };
+  window.Gemini = { transcribe, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, chat, checkDoc, pickRef, refClauses, ping };
 })();
