@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261123l">
+<link rel="stylesheet" href="style.css?v=20261124a">
 </head>
 <body>
 <header class="topbar-wrap"><div class="topbar">
@@ -85,6 +85,16 @@
       <div class="para-h"><b>한 문단 정리</b><span class="para-acts"><button id="btnParaCopy" class="btn small">복사</button><button id="btnParaRedo" class="btn small">다시 쓰기</button></span></div>
       <p id="paraText" class="para-text"></p>
     </div>
+    <section id="chatBox" class="chat-box" hidden>
+      <div class="chat-h"><b>말씀 대화</b><span class="hint">오늘 말씀에 대해 물어보세요</span><button id="btnChatClear" class="btn small" type="button">지우기</button></div>
+      <div id="chatLog" class="chat-log"></div>
+      <div class="chat-sugg" id="chatSugg">
+        <button class="btn small" type="button" data-q="오늘 말씀의 그리스도 쪽과 마귀 쪽 대조를 정리해 줘">대조로 보기</button>
+        <button class="btn small" type="button" data-q="오늘 말씀으로 한 주 동안 붙잡을 기도 제목을 만들어 줘">기도 제목</button>
+        <button class="btn small" type="button" data-q="대지별 핵심 구절만 모아 줘">핵심 구절</button>
+      </div>
+      <form id="chatForm" class="chat-form"><textarea id="chatInput" rows="1" placeholder="예: 둘째 대지를 더 자세히"></textarea><button class="btn primary" id="btnChatSend">보내기</button></form>
+    </section>
     <div id="saveInfo" class="hint"></div>
     <button id="btnDebug2" class="link-btn" type="button">디버그 로그 내보내기</button>
     <div id="checkBox" class="check-box" hidden></div>
@@ -143,12 +153,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script>window.APP_VERSION = '2026-11-23l';</script>
-<script src="markup.js?v=20261123l"></script>
-<script src="pdf.js?v=20261123l"></script>
-<script src="drive.js?v=20261123l"></script>
-<script src="learn.js?v=20261123l"></script>
-<script src="gemini.js?v=20261123l"></script>
-<script src="app.js?v=20261123l"></script>
+<script>window.APP_VERSION = '2026-11-24a';</script>
+<script src="markup.js?v=20261124a"></script>
+<script src="pdf.js?v=20261124a"></script>
+<script src="drive.js?v=20261124a"></script>
+<script src="learn.js?v=20261124a"></script>
+<script src="a2ui.js?v=20261124a"></script>
+<script src="gemini.js?v=20261124a"></script>
+<script src="app.js?v=20261124a"></script>
 </body>
 </html>

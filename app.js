@@ -384,6 +384,7 @@
       id: S.id, savedAt: Date.now(), meta, elapsed: S.elapsed, saved: S.saved, driveTx: S.driveTx, driveIds: S.driveIds, fileSig: S.fileSig,
       segments: S.segments.filter((s) => s.text).map(({ i, t, len, status, text }) => ({ i, t, len, status, text })),
       final: S.final ? { ...S.final, _notes: undefined } : null,
+      chat: (S.chat || []).slice(-20),
     };
     const list = loadHistory().filter((h) => h.id !== S.id);
     list.unshift(entry);
@@ -901,6 +902,7 @@
     $('btnPara').disabled = !has;
     $('paraBox').hidden = !(has && S.final.paragraph);
     if (has && S.final.paragraph) $('paraText').innerHTML = Markup.mark(S.final.paragraph);
+    renderChat();
     if (has) await SermonPdf.preview(S.final, $('docPreview'));
     else $('docPreview').innerHTML = '';
   }
@@ -931,6 +933,79 @@
     const t = `${S.final.title || ''} (${S.final.scripture_main || ''})\n${Markup.strip(S.final.paragraph || '')}`;
     try { await navigator.clipboard.writeText(t); toast('한 문단 정리를 복사했어요.'); } catch (e) { toast('복사하지 못했어요.'); }
   });
+
+  // ---------- 말씀 대화 (A2UI) ----------
+  // Gemini가 A2UI 1.0 메시지로 답하면 a2ui.js가 카드·버튼으로 그린다. 버튼을 누르면 action 메시지가 다시 Gemini로 간다.
+  let chatBusy = false;
+  function chatContext() {
+    const n = S.final?._notes;
+    const material = n ? { big_idea: n.big_idea, central_theme: n.central_theme, flow3: n.flow3, stated_core: n.stated_core, stated_points: n.stated_points, sections: n.sections, contrast: n.contrast, christ_side: n.christ_side, spiritual_warfare: n.spiritual_warfare, text_keys: n.text_keys, points: n.points, conclusion: n.conclusion }
+      : S.final ? { title: S.final.title, scripture_main: S.final.scripture_main, one_line: S.final.one_line, summary: S.final.summary, intro: S.final.intro, body: S.final.body, conclusion: S.final.conclusion }
+      : { live: S.live || null };
+    const tx = ($('trEditWrap').hidden ? '' : $('trEdit').value.trim()) || transcriptText();
+    return { material, transcript: tx.length > 40000 ? `${tx.slice(0, 20000)}\n…(중략)…\n${tx.slice(-20000)}` : tx };
+  }
+  function chatTurnEl(turn) {
+    const el = document.createElement('div');
+    el.className = `chat-turn ${turn.role}`;
+    if (turn.role === 'user') { el.textContent = turn.text; return el; }
+    if (turn.error) { el.classList.add('err'); el.textContent = turn.error; return el; }
+    const host = new A2UI.Host(el, onChatAction);
+    const errs = host.apply(turn.messages || []);
+    if (!host.surfaces.size || !el.textContent.trim()) el.innerHTML = Markup.mark(turn.text || '답을 그리지 못했어요.');
+    if (errs.length) MNDebug?.log?.('a2ui-errors', errs);
+    return el;
+  }
+  function renderChat() {
+    const show = !!(S.final || S.segments.some((x) => x.text));
+    $('chatBox').hidden = !show;
+    if (!show) return;
+    const log = $('chatLog'); log.innerHTML = '';
+    (S.chat || []).forEach((t) => log.appendChild(chatTurnEl(t)));
+    $('chatSugg').hidden = !!(S.chat || []).length;
+  }
+  async function sendChat(input) {
+    if (chatBusy) { toast('앞 질문에 답하는 중이에요.'); return; }
+    if (!cfg.key) { toast('설정에서 Gemini API 키를 먼저 넣어 주세요.'); return; }
+    chatBusy = true; $('btnChatSend').disabled = true;
+    S.chat = S.chat || [];
+    const history = S.chat.map((t) => ({ role: t.role, text: t.text || t.error || '' }));
+    const userTurn = { role: 'user', text: input.action ? (input.action.userMessage || `(${input.action.name})`) : input.text };
+    S.chat.push(userTurn);
+    const log = $('chatLog');
+    log.appendChild(chatTurnEl(userTurn)); $('chatSugg').hidden = true;
+    const wait = document.createElement('div'); wait.className = 'chat-turn bot wait'; wait.textContent = '생각하고 있어요…';
+    log.appendChild(wait); wait.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    let turn;
+    try {
+      const r = await Gemini.chat(cfg, readMeta(), chatContext(), history, input);
+      turn = { role: 'bot', text: r.say, messages: r.messages };
+    } catch (e) { turn = { role: 'bot', error: `답하지 못했어요: ${e.message}` }; }
+    S.chat.push(turn); S.chat = S.chat.slice(-30);
+    wait.replaceWith(chatTurnEl(turn));
+    persist(); archive();
+    chatBusy = false; $('btnChatSend').disabled = false;
+  }
+  function onChatAction(msg, btn) {
+    const a = msg.action;
+    if (a.name === 'copy_text') {
+      const t = Markup.strip(String(a.context?.text || ''));
+      navigator.clipboard.writeText(t).then(() => toast('복사했어요.'), () => toast('복사하지 못했어요.'));
+      return;
+    }
+    if (a.name === 'show_doc') { $('docPreview').scrollIntoView({ behavior: 'smooth' }); return; }
+    if (btn) btn.disabled = true;
+    if (!a.userMessage) a.userMessage = btn ? btn.textContent.trim() : a.name;
+    sendChat({ action: a });
+  }
+  $('chatForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = $('chatInput').value.trim(); if (!q) return;
+    $('chatInput').value = ''; sendChat({ text: q });
+  });
+  $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('chatForm').requestSubmit(); } });
+  $('chatSugg').addEventListener('click', (e) => { const q = e.target.closest('[data-q]')?.dataset.q; if (q) sendChat({ text: q }); });
+  $('btnChatClear').addEventListener('click', () => { if (!(S.chat || []).length || !confirm('대화를 지울까요?')) return; S.chat = []; persist(); archive(); renderChat(); });
 
   async function getPdf() {
     if (!pdfCache) {
