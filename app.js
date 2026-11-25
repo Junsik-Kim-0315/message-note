@@ -180,6 +180,12 @@
     }
     return out;
   }
+  // 한쪽으로 치우친 소리(직류 성분)를 가운데로
+  function removeDc(x) {
+    let m = 0; for (let i = 0; i < x.length; i++) m += x[i];
+    m /= x.length || 1;
+    if (Math.abs(m) > 1e-4) for (let i = 0; i < x.length; i++) x[i] -= m;
+  }
   // 작게 들어온 소리는 키워서 보낸다 (최대 20배, 봉우리 0.8)
   function normalize(x) {
     let peak = 0; for (let i = 0; i < x.length; i++) { const a = Math.abs(x[i]); if (a > peak) peak = a; }
@@ -304,7 +310,9 @@
     const samples = downsample(rec.chunks, rec.rate);
     const t = rec.segStart;
     rec.chunks = []; rec.len = 0; rec.segStart = elapsedNow();
+    removeDc(samples);
     if (rms(samples) < 0.002) return; // 거의 무음이면 건너뜀
+    if (!force && looksLikeNoise(samples)) { onNoiseOnly(t); return; }
     normalize(samples);
     const seg = { i: segCounter++, t, status: 'pending', text: '' };
     wavs.set(seg.i, encodeWav(samples));
@@ -315,12 +323,33 @@
 
   const elapsedNow = () => S.elapsed + (rec ? (Date.now() - rec.startedAt) / 1000 : 0);
 
+  // 30초 내내 음량이 똑같은 소리 = 말·음악이 아닌 잡음(장치에서 깨진 소리가 들어온 경우)
+  function looksLikeNoise(x) {
+    const sec = TARGET_RATE, n = Math.floor(x.length / sec);
+    if (n < 10) return false;
+    const r = []; for (let k = 0; k < n; k++) { let q = 0; for (let i = k * sec; i < (k + 1) * sec; i += 2) q += x[i] * x[i]; r.push(Math.sqrt(q / (sec / 2))); }
+    const m = r.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / n);
+    return m > 0 && sd / m < 0.04;
+  }
+  async function onNoiseOnly(t) {
+    S.segments.push({ i: segCounter++, t, status: 'done', text: '', raw: '잡음만 들어와서 보내지 않음' });
+    renderSegments(); persist();
+    if (micMode === 0 && rec) {
+      micMode = 1;
+      toast('입력 장치에서 잡음만 들어와서 다른 방식으로 다시 열었어요.', 5000);
+      try { const old = rec.cap; await closeCapture(old); rec.cap = null; rec.chunks = []; rec.len = 0; await openCapture(); } catch (e) {}
+    } else {
+      toast('계속 잡음만 들어와요. 유튜브 소리가 Loopback으로 가는지(Loopback 창의 막대) 확인해 주세요.', 8000);
+    }
+  }
+
   async function openCapture() {
     const stream = await openMic(cfg.micId);
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     await ctx.resume();
     const src = ctx.createMediaStreamSource(stream);
-    const proc = ctx.createScriptProcessor(4096, 2, 1);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
     const cap = { stream, ctx, src, proc, lastAudio: Date.now() };
     proc.onaudioprocess = (e) => {
       if (!rec || rec.cap !== cap) return;
@@ -342,8 +371,12 @@
 
   // 마이크(입력 장치) 열기: 음성 보정(에코 제거·잡음 억제·자동 음량)은 모두 끈다.
   // 켜 두면 Loopback 같은 가상 장치로 들어온 방송 소리를 '잡음'으로 보고 지워 버린다.
-  async function openMic(micId) {
-    const base = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } };
+  // mode 0: 음성 보정 없이 원래 소리 / mode 1: 브라우저 음성 보정을 켠 예전 방식 (0에서 잡음만 들어올 때 자동으로 바꿈)
+  let micMode = 0;
+  async function openMic(micId, mode = micMode) {
+    const base = mode === 1
+      ? { echoCancellation: false, noiseSuppression: true, autoGainControl: true }
+      : { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
     if (micId) {
       try { return await navigator.mediaDevices.getUserMedia({ audio: { ...base, deviceId: { exact: micId } } }); }
       catch (e) { toast('설정에서 고른 입력 장치를 찾지 못해 기본 마이크로 녹음해요.', 4000); }
@@ -1124,7 +1157,7 @@
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       await ctx.resume();
       const src = ctx.createMediaStreamSource(stream);
-      const proc = ctx.createScriptProcessor(2048, 2, 1);
+      const proc = ctx.createScriptProcessor(2048, 1, 1);
       let best = 0;
       const started = Date.now();
       proc.onaudioprocess = (e) => {
