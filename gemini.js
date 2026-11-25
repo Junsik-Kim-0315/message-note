@@ -206,12 +206,22 @@
 - 잘 들리지 않는 부분은 지어내지 말고 생략하세요.
 - 목사·인도자 한 사람이 소리 내어 하는 기도(대표기도, 설교 전후 기도, 마무리 기도)는 (기도)로 줄이지 말고 그대로 받아쓰세요.
 - 노래하는 찬양·연주는 (찬양), 회중이 다 같이 소리 내는 기도·신앙고백은 (기도), 광고는 (광고)처럼 한 줄로만 표시하세요.
-- 한국어 말소리가 한 마디도 없을 때만(잡음뿐이거나 외국어뿐일 때) 설명하지 말고 정확히 (없음) 한 마디만 출력하세요.
+- 말소리가 전혀 없으면 설명 없이 아무것도 출력하지 마세요. 배경 음악이 깔려 있어도 말하는 소리가 있으면 받아쓰세요.
 - 화자 이름, 시간, 설명 없이 받아쓴 문장만 출력하세요.
 ${window.MN_TERMS ? `- 이전에 자주 잘못 받아쓴 말(잘못→바름): ${window.MN_TERMS}\n` : ''}${prevTail ? `직전 구간의 끝부분(문맥 참고용, 다시 쓰지 마세요): "${prevTail}"` : ''}`;
     const data = await blobToBase64(blob);
     return call(cfg, cfg.sttModel, [{ text: prompt }, { inline_data: { mime_type: mime, data } }],
       { temperature: 0, thinking: 0, timeoutMs: approxSec >= 60 ? 240000 : 90000, label: 'stt' });
+  }
+
+  // 첫 받아쓰기가 '(없음)'이나 '(찬양)'처럼 비어 돌아왔을 때 다시 묻는 짧은 지시
+  async function transcribePlain(cfg, blob) {
+    const prompt = `이 오디오(약 30초)에서 들리는 한국어 말을 처음부터 끝까지 그대로 받아쓰세요.
+중국어·일본어 등 외국어 부분은 빼고 한국어만 쓰세요. 배경 음악이 깔려 있어도 말소리는 받아쓰세요.
+설명 없이 받아쓴 문장만 출력하세요. 한국어가 정말 한 마디도 없으면 아무것도 출력하지 마세요.`;
+    const data = await blobToBase64(blob);
+    return call(cfg, cfg.sttModel, [{ inline_data: { mime_type: 'audio/wav', data } }, { text: prompt }],
+      { temperature: 0.2, thinking: 0, timeoutMs: 90000, label: 'stt' });
   }
 
   // ---------- 긴 녹음 파일: Gemini에 파일째 올리고 시간 구간별로 받아쓰기 ----------
@@ -833,5 +843,5 @@ ${JSON.stringify(src, null, 1)}`;
     return call(cfg, cfg.anaModel, [{ text: '“확인”이라고만 답하세요.' }], { temperature: 0, timeoutMs: 30000 });
   }
 
-  window.Gemini = { transcribe, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, checkDoc, pickRef, refClauses, ping };
+  window.Gemini = { transcribe, transcribePlain, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, checkDoc, pickRef, refClauses, ping };
 })();
