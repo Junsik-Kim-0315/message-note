@@ -222,7 +222,11 @@
     const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
     const label = (l) => /^[(（\[]\s*(기도|찬양|광고|연주|음악|무음|없음|침묵|잡음|소음|말소리 없음|빈 문자열|중국어|외국어|통역)[^)）\]]{0,12}[)）\]]\.?$/.test(l);
     const meta = /(빈 문자열|백색 ?소음|아무것도 출력하지|반환합니다|출력하지 않|(말소리|한국어)[가는이나]? ?(없|들리지 않))/;
-    const kept = lines.filter((l) => !label(l));
+    // 한글이 하나도 없는 영어 설명 줄(예: 'The provided audio matches the following Korean transcription')과
+    // '다음은 받아쓴 내용입니다' 같은 머리말은 버린다
+    const english = (l) => !/[가-힣]/.test(l) && (l.match(/[A-Za-z]{2,}/g) || []).length >= 3;
+    const preface = (l) => /^(다음은|아래는|이 오디오는|오디오의?|받아쓴|받아쓰기)[^.]{0,30}(내용|결과|받아쓰기|받아쓴|전사)[^.]{0,15}[.:：]?$/.test(l) || /^(transcription|transcript)\s*[:：]?$/i.test(l);
+    const kept = lines.filter((l) => !label(l) && !english(l) && !preface(l));
     // 지시문을 되읊은 설명은 답 전체가 짧은 설명일 때만 버린다 (설교 속 '아무런 말도…' 같은 문장은 지키기)
     const rest = kept.join(' ');
     if (rest.length < 120 && meta.test(rest)) return '';
@@ -340,7 +344,7 @@
       toast('입력 장치에서 잡음만 들어와서 다른 방식으로 다시 열었어요.', 5000);
       try { const old = rec.cap; await closeCapture(old); rec.cap = null; rec.chunks = []; rec.len = 0; await openCapture(); } catch (e) {}
     } else {
-      toast(`계속 잡음만 들어와요. 앱이 녹음하는 장치는 "${rec?.cap?.stream.getAudioTracks()[0]?.label || '알 수 없음'}"예요. 설정의 '녹음 입력 장치'가 유튜브 소리가 가는 Loopback 장치인지 확인해 주세요.`, 10000);
+      toast(`계속 잡음만 들어와요. 앱이 녹음하는 장치는 "${rec?.cap?.stream.getAudioTracks()[0]?.label || '알 수 없음'}"예요. 설정의 '녹음 입력 장치'가 유튜브 소리가 가는 Loopback 장치인지, 그리고 유튜브와 이 앱이 같은 브라우저에서 열려 있지 않은지 확인해 주세요(같은 브라우저면 소리가 안 들어와요).`, 10000);
     }
   }
 
