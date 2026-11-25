@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261123l">
+<link rel="stylesheet" href="style.css?v=20261125a">
 </head>
 <body>
 <header class="topbar-wrap"><div class="topbar">
@@ -44,6 +44,7 @@
   <section class="recbar">
     <button id="btnRec" class="rec-btn"><span class="dot"></span><span id="recLabel">녹음 시작</span></button>
     <div class="timer" id="timer">00:00</div>
+    <div class="meter" id="recMeter" hidden title="들어오는 소리 크기"><i></i></div>
   </section>
   <button id="btnFile" class="btn file-btn">음성 메모 파일로 정리하기</button>
   <ol class="steps" id="steps"></ol>
@@ -116,6 +117,15 @@
       <input id="cfgKey" type="password" autocomplete="off" placeholder="AIza...">
     </label>
     <p class="hint">키는 이 기기 안에만 저장되고 어디에도 올라가지 않아요.</p>
+    <label>녹음 입력 장치
+      <select id="cfgMic"></select>
+    </label>
+    <div class="row">
+      <button type="button" id="btnMicTest" class="btn">소리 확인</button>
+      <div class="meter wide" id="micMeter" hidden><i></i></div>
+    </div>
+    <p class="hint" id="micHint"></p>
+    <p class="hint">맥에서 방송 소리를 녹음할 때는 "Loopback Record"를 고르세요. 막대가 움직이면 소리가 들어오는 거예요.</p>
     <label>받아쓰기 모델<input id="cfgSttModel" placeholder="gemini-2.5-flash"></label>
     <label>정리·분석 모델<input id="cfgAnaModel" placeholder="gemini-2.5-flash"></label>
     <label>실시간 정리 간격(분)<input id="cfgLiveMin" type="number" min="1" max="15" step="1"></label>
@@ -143,12 +153,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script>window.APP_VERSION = '2026-11-23l';</script>
-<script src="markup.js?v=20261123l"></script>
-<script src="pdf.js?v=20261123l"></script>
-<script src="drive.js?v=20261123l"></script>
-<script src="learn.js?v=20261123l"></script>
-<script src="gemini.js?v=20261123l"></script>
-<script src="app.js?v=20261123l"></script>
+<script>window.APP_VERSION = '2026-11-25a';</script>
+<script src="markup.js?v=20261125a"></script>
+<script src="pdf.js?v=20261125a"></script>
+<script src="drive.js?v=20261125a"></script>
+<script src="learn.js?v=20261125a"></script>
+<script src="gemini.js?v=20261125a"></script>
+<script src="app.js?v=20261125a"></script>
 </body>
 </html>

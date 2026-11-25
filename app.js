@@ -5,7 +5,7 @@
   const TARGET_RATE = 16000;
 
   // ---------- 설정 ----------
-  const DEFAULT_CFG = { key: '', sttModel: 'gemini-2.5-flash', anaModel: 'gemini-2.5-flash', liveMin: 3, rpm: 8 };
+  const DEFAULT_CFG = { key: '', sttModel: 'gemini-2.5-flash', anaModel: 'gemini-2.5-flash', liveMin: 3, rpm: 8, micId: '', micLabel: '' };
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set(k, v) {
@@ -137,7 +137,7 @@
 
   function renderSegments() {
     $('trEmpty').hidden = S.segments.length > 0;
-    $('trList').innerHTML = S.segments.map((s) => {
+    $('trList').innerHTML = S.segments.filter((s) => !(s.status === 'done' && !s.text)).map((s) => {
       const waiting = s.waitUntil && s.waitUntil > Date.now() ? ` (한도 초과, ${Math.ceil((s.waitUntil - Date.now()) / 1000)}초 뒤 다시)` : '';
       const label = s.status === 'pending' ? (s.active ? `받아쓰는 중…${waiting}` : '대기 중') : s.status === 'failed' ? `인식 실패${s.err ? ` · ${esc(s.err)}` : ''}` : '';
       const retry = s.status === 'failed' && (wavs.has(s.i) || fileJob) ? ` <button class="btn" data-retry="${s.i}">다시</button>` : '';
@@ -146,7 +146,8 @@
     }).join('');
     updateProgress();
     const total = transcriptText().length;
-    $('trStats').textContent = total ? `받아쓴 글자 ${total.toLocaleString()}자 · ${S.segments.filter((s) => s.status === 'done').length}구간` : '';
+    const nSilent = S.segments.filter((s) => s.status === 'done' && !s.text).length;
+    $('trStats').textContent = (total ? `받아쓴 글자 ${total.toLocaleString()}자 · ${S.segments.filter((s) => s.status === 'done' && s.text).length}구간` : '') + (nSilent ? ` · 말소리 없는 구간 ${nSilent}개 건너뜀` : '');
     $('btnCopyTr').hidden = !total;
     const nFail = S.segments.filter((s) => s.status === 'failed').length;
     $('btnRetryFailed').hidden = !nFail;
@@ -176,6 +177,13 @@
     }
     return out;
   }
+  // 작게 들어온 소리는 키워서 보낸다 (최대 20배, 봉우리 0.8)
+  function normalize(x) {
+    let peak = 0; for (let i = 0; i < x.length; i++) { const a = Math.abs(x[i]); if (a > peak) peak = a; }
+    if (!peak) return;
+    const g = Math.min(20, 0.8 / peak);
+    if (g > 1.2) for (let i = 0; i < x.length; i++) x[i] *= g;
+  }
   function rms(x) { let s = 0; for (let i = 0; i < x.length; i += 4) s += x[i] * x[i]; return Math.sqrt(s / (x.length / 4)); }
   function encodeWav(samples) {
     const buf = new ArrayBuffer(44 + samples.length * 2);
@@ -190,6 +198,17 @@
   }
 
   // ---------- 받아쓰기 ----------
+  // 말소리가 없는 구간에서 Gemini가 지어내는 '(기도)', '(찬양)' 한 줄이나 지시문을 되읊은 답은 버린다
+  function cleanStt(text) {
+    let t = String(text || '').trim();
+    if (!t) return '';
+    const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
+    const junk = (l) => /^[(（\[]\s*(기도|찬양|광고|연주|음악|무음|없음|침묵|잡음|소음|말소리 없음|빈 문자열)[^)）\]]{0,12}[)）\]]\.?$/.test(l)
+      || /(빈 문자열|말소리(가|나)? (없|들리지)|백색 ?소음|잡음\)? ?외에|아무것도 출력하지|아무런 (말|소리)|오디오에.{0,20}없)/.test(l);
+    const kept = lines.filter((l) => !junk(l));
+    return kept.join('\n').trim();
+  }
+
   // 받아쓰기 요청 속도 조절: 무료 키는 분당 요청 수 한도가 낮아서(약 10회) 몰아 보내면 429로 실패한다
   let nextSlot = 0;
   async function rateGate() {
@@ -215,6 +234,7 @@
           : wav.blob
             ? await Gemini.transcribe(cfg, wav.blob, '', { mime: wav.mime, approxSec: wav.sec })
             : await Gemini.transcribe(cfg, wav, prevTail);
+        seg.text = cleanStt(seg.text);
         seg.status = 'done'; seg.err = ''; wavs.delete(seg.i);
         return;
       } catch (e) {
@@ -263,6 +283,7 @@
     const t = rec.segStart;
     rec.chunks = []; rec.len = 0; rec.segStart = elapsedNow();
     if (rms(samples) < 0.002) return; // 거의 무음이면 건너뜀
+    normalize(samples);
     const seg = { i: segCounter++, t, status: 'pending', text: '' };
     wavs.set(seg.i, encodeWav(samples));
     S.segments.push(seg);
@@ -273,16 +294,18 @@
   const elapsedNow = () => S.elapsed + (rec ? (Date.now() - rec.startedAt) / 1000 : 0);
 
   async function openCapture() {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+    const stream = await openMic(cfg.micId);
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     await ctx.resume();
     const src = ctx.createMediaStreamSource(stream);
-    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    const proc = ctx.createScriptProcessor(4096, 2, 1);
     const cap = { stream, ctx, src, proc, lastAudio: Date.now() };
     proc.onaudioprocess = (e) => {
       if (!rec || rec.cap !== cap) return;
       cap.lastAudio = Date.now();
-      rec.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      const mono = mixDown(e.inputBuffer);
+      showLevel($('recMeter'), mono);
+      rec.chunks.push(mono);
       rec.len += e.inputBuffer.length;
       if (rec.len >= ctx.sampleRate * SEG_SEC) flushSegment(false);
     };
@@ -293,6 +316,45 @@
     });
     if (rec) { rec.cap = cap; rec.rate = ctx.sampleRate; }
     return cap;
+  }
+
+  // 마이크(입력 장치) 열기: 음성 보정(에코 제거·잡음 억제·자동 음량)은 모두 끈다.
+  // 켜 두면 Loopback 같은 가상 장치로 들어온 방송 소리를 '잡음'으로 보고 지워 버린다.
+  async function openMic(micId) {
+    const base = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } };
+    if (micId) {
+      try { return await navigator.mediaDevices.getUserMedia({ audio: { ...base, deviceId: { exact: micId } } }); }
+      catch (e) { toast('설정에서 고른 입력 장치를 찾지 못해 기본 마이크로 녹음해요.', 4000); }
+    }
+    return navigator.mediaDevices.getUserMedia({ audio: base });
+  }
+  // 왼쪽·오른쪽 소리를 합쳐 한 채널로 (한쪽에만 소리가 있어도 잡히게)
+  function mixDown(buf) {
+    const a = buf.getChannelData(0);
+    if (buf.numberOfChannels < 2) return new Float32Array(a);
+    const b = buf.getChannelData(1), out = new Float32Array(a.length);
+    for (let i = 0; i < a.length; i++) out[i] = (a[i] + b[i]) / 2;
+    return out;
+  }
+  // 소리 크기 막대
+  let quietSince = 0, quietWarned = false;
+  function showLevel(el, x) {
+    let peak = 0; for (let i = 0; i < x.length; i += 2) { const v = Math.abs(x[i]); if (v > peak) peak = v; }
+    if (el) {
+      const db = peak > 0 ? 20 * Math.log10(peak) : -100;
+      const pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+      el.style.setProperty('--lv', pct + '%');
+      el.classList.toggle('quiet', peak < 0.003);
+    }
+    if (el && el.id === 'recMeter') {
+      if (peak >= 0.003) { quietSince = 0; quietWarned = false; }
+      else if (!quietSince) quietSince = Date.now();
+      else if (!quietWarned && Date.now() - quietSince > 15000) {
+        quietWarned = true;
+        toast('15초째 소리가 거의 안 들어와요. 설정에서 입력 장치를 확인해 주세요.', 6000);
+      }
+    }
+    return peak;
   }
 
   async function closeCapture(cap) {
@@ -355,6 +417,7 @@
     catch (e) { rec = null; toast('마이크를 쓸 수 없어요. Safari 설정에서 마이크를 허용해 주세요.', 4000); return; }
     lockScreen();
     $('btnRec').classList.add('on'); $('recLabel').textContent = '녹음 끝내기';
+    $('recMeter').hidden = false; quietSince = 0; quietWarned = false;
     flow(0, 'active', '녹음 중', '화면을 켜 둔 채로 두세요');
     tick = setInterval(() => {
       $('timer').textContent = fmt(elapsedNow());
@@ -526,7 +589,7 @@
     await closeCapture(r.cap);
     clearInterval(tick); clearInterval(liveTimer);
     try { await wakeLock?.release(); } catch (e) {} wakeLock = null;
-    $('btnRec').classList.remove('on'); $('recLabel').textContent = '이어서 녹음';
+    $('btnRec').classList.remove('on'); $('recLabel').textContent = '이어서 녹음'; $('recMeter').hidden = true;
     flow(0, 'done', '녹음 완료', '남은 받아쓰기를 마무리하고 있어요'); flow(1, 'active');
     persist();
     await queue;
@@ -1008,8 +1071,53 @@
     $('cfgKey').value = cfg.key; $('cfgSttModel').value = cfg.sttModel; $('cfgAnaModel').value = cfg.anaModel; $('cfgLiveMin').value = cfg.liveMin; $('cfgRpm').value = cfg.rpm;
     $('googleState').textContent = Drive.hasToken() ? '연결됨' : '';
     $('testState').textContent = '';
+    fillMics();
     $('settings').showModal();
   }
+  // 입력 장치 목록 (이름은 마이크를 한 번 허용해야 보인다)
+  async function fillMics(cur = cfg.micId) {
+    const sel = $('cfgMic');
+    let list = [];
+    try { list = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications'); } catch (e) {}
+    const named = list.some((d) => d.label);
+    sel.innerHTML = `<option value="">기본 마이크 (브라우저 설정을 따름)</option>` + list.map((d, n) => `<option value="${esc(d.deviceId)}">${esc(d.label || `입력 장치 ${n + 1}`)}</option>`).join('');
+    if (cur && !list.some((d) => d.deviceId === cur)) sel.insertAdjacentHTML('beforeend', `<option value="${esc(cur)}">${esc(cfg.micLabel || '지난번에 고른 장치')} (지금 안 보임)</option>`);
+    sel.value = cur || '';
+    $('micHint').textContent = named ? '' : '장치 이름이 안 보이면 "소리 확인"을 한 번 눌러 마이크를 허용해 주세요.';
+  }
+  let testCap = null;
+  async function stopMicTest() {
+    if (!testCap) return;
+    const c = testCap; testCap = null;
+    try { c.proc.disconnect(); c.src.disconnect(); } catch (e) {}
+    c.stream.getTracks().forEach((t) => t.stop());
+    try { await c.ctx.close(); } catch (e) {}
+    $('btnMicTest').textContent = '소리 확인';
+  }
+  $('btnMicTest').addEventListener('click', async () => {
+    if (testCap) { stopMicTest(); return; }
+    const id = $('cfgMic').value;
+    try {
+      const stream = await openMic(id);
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      await ctx.resume();
+      const src = ctx.createMediaStreamSource(stream);
+      const proc = ctx.createScriptProcessor(2048, 2, 1);
+      let best = 0;
+      const started = Date.now();
+      proc.onaudioprocess = (e) => {
+        best = Math.max(best, showLevel($('micMeter'), mixDown(e.inputBuffer)));
+        if (Date.now() - started > 1500) $('micHint').textContent = best > 0.003 ? `소리가 들어오고 있어요. (${stream.getAudioTracks()[0]?.label || '장치'})` : '아직 소리가 안 들어와요. 방송이 재생 중인지, 장치가 맞는지 확인해 주세요.';
+      };
+      src.connect(proc); proc.connect(ctx.destination);
+      testCap = { stream, ctx, src, proc };
+      $('btnMicTest').textContent = '확인 멈추기';
+      $('micMeter').hidden = false;
+      await fillMics(id);
+      setTimeout(() => { if (testCap?.stream === stream) stopMicTest(); }, 20000);
+    } catch (e) { $('micHint').textContent = '마이크를 열지 못했어요. 브라우저에서 이 사이트의 마이크를 허용해 주세요.'; }
+  });
+  $('settings').addEventListener('close', stopMicTest);
   function readCfg() {
     return {
       key: $('cfgKey').value.trim(),
@@ -1017,6 +1125,8 @@
       anaModel: $('cfgAnaModel').value.trim() || DEFAULT_CFG.anaModel,
       liveMin: Math.min(15, Math.max(1, Number($('cfgLiveMin').value) || 3)),
       rpm: Math.min(60, Math.max(1, Number($('cfgRpm').value) || 8)),
+      micId: $('cfgMic').value,
+      micLabel: $('cfgMic').selectedOptions[0]?.textContent || '',
     };
   }
   $('btnSettings').addEventListener('click', openSettings);
