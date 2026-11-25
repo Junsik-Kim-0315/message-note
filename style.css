@@ -245,3 +245,4 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .meter.wide { flex: 1; min-width: 120px; }
 .meter i { display: block; height: 100%; width: var(--lv, 0%); background: var(--accent); transition: width .08s linear; }
 .meter.quiet i { background: #c0392b; width: 4%; }
+.seg.skipped { opacity: .55; padding-top: 4px; padding-bottom: 4px; }
