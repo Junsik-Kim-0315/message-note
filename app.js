@@ -23,6 +23,7 @@
     },
     del(k) { try { localStorage.removeItem(k); } catch (e) {} },
   };
+  let lastWav = null; // Gemini에 보낸 마지막 구간 소리 (들어보기용)
   let cfg = { ...DEFAULT_CFG, ...store.get('mn_cfg', {}) };
 
   // ---------- 세션 상태 ----------
@@ -150,6 +151,7 @@
     const nSilent = S.segments.filter((s) => s.status === 'done' && !s.text).length;
     $('trStats').textContent = (total ? `받아쓴 글자 ${total.toLocaleString()}자 · ${S.segments.filter((s) => s.status === 'done' && s.text).length}구간` : '') + (nSilent ? ` · 말소리 없는 구간 ${nSilent}개 건너뜀` : '');
     $('btnCopyTr').hidden = !total;
+    $('btnPlayLast').hidden = !lastWav;
     const nFail = S.segments.filter((s) => s.status === 'failed').length;
     $('btnRetryFailed').hidden = !nFail;
     $('btnRetryFailed').textContent = `실패한 구간 다시 (${nFail}개)`;
@@ -199,6 +201,14 @@
   }
 
   // ---------- 받아쓰기 ----------
+
+  $('btnPlayLast').addEventListener('click', () => {
+    if (!lastWav) { toast('아직 보낸 구간이 없어요.'); return; }
+    const a = $('lastAudio');
+    if (a.src) URL.revokeObjectURL(a.src);
+    a.src = URL.createObjectURL(lastWav.blob); a.hidden = false; a.play().catch(() => {});
+    toast(`${fmt(lastWav.t)}부터 30초, Gemini에 보낸 소리예요.`, 3000);
+  });
   // 말소리가 없는 구간에서 Gemini가 지어내는 '(기도)', '(찬양)' 한 줄이나 지시문을 되읊은 답은 버린다
   function cleanStt(text) {
     let t = String(text || '').trim();
@@ -238,10 +248,16 @@
           : wav.blob
             ? await Gemini.transcribe(cfg, wav.blob, '', { mime: wav.mime, approxSec: wav.sec })
             : await Gemini.transcribe(cfg, wav, prevTail);
-        const raw = seg.text;
+        let raw = seg.text;
         seg.text = cleanStt(raw);
+        // 실시간 녹음 구간이 비어 돌아오면 짧은 지시로 한 번 더 묻는다
+        if (!seg.text && wav instanceof Blob && !wav.remote && !seg.retried) {
+          seg.retried = true;
+          await rateGate();
+          try { const again = await Gemini.transcribePlain(cfg, wav); const c = cleanStt(again); if (c) seg.text = c; else raw = `${raw} / ${again}`; } catch (e) {}
+        }
         seg.raw = seg.text ? '' : String(raw || '').trim().slice(0, 200);
-        seg.status = 'done'; seg.err = ''; wavs.delete(seg.i);
+        seg.status = 'done'; seg.err = ''; if (wav instanceof Blob) lastWav = { blob: wav, t: seg.t }; wavs.delete(seg.i);
         return;
       } catch (e) {
         seg.err = e.message;
