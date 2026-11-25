@@ -239,3 +239,9 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .summary-box .core q { font-weight: 700; color: #1d2a24; quotes: "“" "”"; }
 
 .link-btn { background: none; border: 0; padding: 4px 0; font: inherit; font-size: 13px; color: var(--muted); text-decoration: underline; cursor: pointer; }
+
+/* 들어오는 소리 크기 막대 */
+.meter { width: 70px; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 25%, transparent); overflow: hidden; align-self: center; }
+.meter.wide { flex: 1; min-width: 120px; }
+.meter i { display: block; height: 100%; width: var(--lv, 0%); background: var(--accent); transition: width .08s linear; }
+.meter.quiet i { background: #c0392b; width: 4%; }
