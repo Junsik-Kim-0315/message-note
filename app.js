@@ -137,7 +137,8 @@
 
   function renderSegments() {
     $('trEmpty').hidden = S.segments.length > 0;
-    $('trList').innerHTML = S.segments.filter((s) => !(s.status === 'done' && !s.text)).map((s) => {
+    $('trList').innerHTML = S.segments.map((s) => {
+      if (s.status === 'done' && !s.text) return `<div class="seg skipped"><div class="t">${fmt(s.t)} · 말소리 없음으로 건너뜀${s.raw ? ` (Gemini 답: ${esc(s.raw.slice(0, 60))})` : ' (Gemini 답이 비어 있음)'}</div></div>`;
       const waiting = s.waitUntil && s.waitUntil > Date.now() ? ` (한도 초과, ${Math.ceil((s.waitUntil - Date.now()) / 1000)}초 뒤 다시)` : '';
       const label = s.status === 'pending' ? (s.active ? `받아쓰는 중…${waiting}` : '대기 중') : s.status === 'failed' ? `인식 실패${s.err ? ` · ${esc(s.err)}` : ''}` : '';
       const retry = s.status === 'failed' && (wavs.has(s.i) || fileJob) ? ` <button class="btn" data-retry="${s.i}">다시</button>` : '';
@@ -203,9 +204,12 @@
     let t = String(text || '').trim();
     if (!t) return '';
     const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
-    const junk = (l) => /^[(（\[]\s*(기도|찬양|광고|연주|음악|무음|없음|침묵|잡음|소음|말소리 없음|빈 문자열)[^)）\]]{0,12}[)）\]]\.?$/.test(l)
-      || /(빈 문자열|말소리(가|나)? (없|들리지)|백색 ?소음|잡음\)? ?외에|아무것도 출력하지|아무런 (말|소리)|오디오에.{0,20}없)/.test(l);
-    const kept = lines.filter((l) => !junk(l));
+    const label = (l) => /^[(（\[]\s*(기도|찬양|광고|연주|음악|무음|없음|침묵|잡음|소음|말소리 없음|빈 문자열|중국어|외국어|통역)[^)）\]]{0,12}[)）\]]\.?$/.test(l);
+    const meta = /(빈 문자열|백색 ?소음|아무것도 출력하지|반환합니다|출력하지 않|(말소리|한국어)[가는이나]? ?(없|들리지 않))/;
+    const kept = lines.filter((l) => !label(l));
+    // 지시문을 되읊은 설명은 답 전체가 짧은 설명일 때만 버린다 (설교 속 '아무런 말도…' 같은 문장은 지키기)
+    const rest = kept.join(' ');
+    if (rest.length < 120 && meta.test(rest)) return '';
     return kept.join('\n').trim();
   }
 
@@ -234,7 +238,9 @@
           : wav.blob
             ? await Gemini.transcribe(cfg, wav.blob, '', { mime: wav.mime, approxSec: wav.sec })
             : await Gemini.transcribe(cfg, wav, prevTail);
-        seg.text = cleanStt(seg.text);
+        const raw = seg.text;
+        seg.text = cleanStt(raw);
+        seg.raw = seg.text ? '' : String(raw || '').trim().slice(0, 200);
         seg.status = 'done'; seg.err = ''; wavs.delete(seg.i);
         return;
       } catch (e) {
@@ -1040,7 +1046,7 @@
     const lastraw = store.get('mn_lastraw', null);
     const hist = store.get('mn_history', []);
     const cur = S ? {
-      id: S.id, meta: S.meta, segments: (S.segments || []).map(({ i, t, len, status, text, error }) => ({ i, t, len, status, chars: (text || '').length, error: error || '' })),
+      id: S.id, meta: S.meta, segments: (S.segments || []).map(({ i, t, len, status, text, error, raw }) => ({ i, t, len, status, chars: (text || '').length, error: error || '', raw: raw || '' })),
       transcriptChars: (S.segments || []).reduce((n, x) => n + (x.text || '').length, 0),
       final: S.final ? { title: S.final.title, check: S.final._check || null, autoRed: S.final._autoRed || 0, stated_core: S.final.stated_core || '', doc: { ...S.final, _notes: undefined } } : null,
       notes: S.final?._notes || null,
