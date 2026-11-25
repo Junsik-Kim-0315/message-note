@@ -340,7 +340,7 @@
       toast('입력 장치에서 잡음만 들어와서 다른 방식으로 다시 열었어요.', 5000);
       try { const old = rec.cap; await closeCapture(old); rec.cap = null; rec.chunks = []; rec.len = 0; await openCapture(); } catch (e) {}
     } else {
-      toast('계속 잡음만 들어와요. 유튜브 소리가 Loopback으로 가는지(Loopback 창의 막대) 확인해 주세요.', 8000);
+      toast(`계속 잡음만 들어와요. 앱이 녹음하는 장치는 "${rec?.cap?.stream.getAudioTracks()[0]?.label || '알 수 없음'}"예요. 설정의 '녹음 입력 장치'가 유튜브 소리가 가는 Loopback 장치인지 확인해 주세요.`, 10000);
     }
   }
 
@@ -366,6 +366,8 @@
       t.addEventListener('mute', () => { if (rec?.cap === cap) markDropped(); });
     });
     if (rec) { rec.cap = cap; rec.rate = ctx.sampleRate; }
+    const devName = stream.getAudioTracks()[0]?.label || '알 수 없는 장치';
+    $('recDev').textContent = `녹음 중인 입력 장치: ${devName}`; $('recDev').hidden = false;
     return cap;
   }
 
@@ -644,7 +646,7 @@
     await closeCapture(r.cap);
     clearInterval(tick); clearInterval(liveTimer);
     try { await wakeLock?.release(); } catch (e) {} wakeLock = null;
-    $('btnRec').classList.remove('on'); $('recLabel').textContent = '이어서 녹음'; $('recMeter').hidden = true;
+    $('btnRec').classList.remove('on'); $('recLabel').textContent = '이어서 녹음'; $('recMeter').hidden = true; $('recDev').hidden = true;
     flow(0, 'done', '녹음 완료', '남은 받아쓰기를 마무리하고 있어요'); flow(1, 'active');
     persist();
     await queue;
