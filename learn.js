@@ -188,6 +188,21 @@
     return [...m].sort((a, b) => b[1] - a[1]).slice(0, n);
   }
 
+  // 설교자가 순서를 매겨 말한 요점(첫째·두 번째·세 번째는…)과 그 자리의 구절.
+  // 2026-11-25 수요예배: 끝부분 '세 번째는 꼭 가져야 될 일이 있어요. 고린도후서 12장 9절…(약할 때 강함)'이 정리본에서 빠졌다.
+  const ORD = /(첫째|첫\s*번째|둘째|두\s*번째|셋째|세\s*번째|넷째|네\s*번째|다섯째|다섯\s*번째)(는|로|가|,|\s*(꼭|가장|중요|비밀|단어|말씀|이|은))/g;
+  const REF = /([가-힣]{1,7})\s*(\d{1,3})\s*장\s*(\d{1,3})\s*절/g;
+  function numbered(text) {
+    const t = String(text || '').replace(/\s+/g, ' ').replace(/\b\d{1,2}:\d{2}(?=\S)/g, '');
+    const out = [];
+    for (const m of t.matchAll(ORD)) {
+      const win = t.slice(m.index, m.index + 400);
+      const refs = [...win.matchAll(REF)].slice(0, 2).map((r) => ({ book: r[1], ref: `${r[2]}:${r[3]}`, text: r[0] }));
+      out.push({ mark: m[1].replace(/\s+/g, ' '), at: m.index / (t.length || 1), text: win.split(/(?<=[.?!])\s+/).filter((x) => x.length > 3).slice(0, 6).join(' ').slice(0, 320), refs });
+    }
+    return out.slice(-10);
+  }
+
   // 설교자가 직접 핵심을 밝혔을 가능성이 높은 문장 후보: '오늘 메시지의 핵심', '세 가지 비밀', '오늘 하나님이 말씀하신 거예요', '이 비밀 하나만' 등
   // (2026-11-22 1부는 '핵심'이라는 말 없이 '…몸에 성막을 지으라고 오늘 하나님이 말씀하신 거예요'로 밝혀 노트가 놓쳤다)
   function coreCands(text) {
@@ -207,5 +222,5 @@
 
   // 정리할 때 반드시 살릴 설교자 핵심 어휘를 넘긴다
   const vocabOf = (p) => (p?.vocab || []).map((v) => String(v).split(/[(]/)[0].trim());
-  window.Learn = { coreCands, repeated, signals, vocabOf, load, merge, save, toText, termsText, toHtml, keyOf, clean };
+  window.Learn = { coreCands, numbered, repeated, signals, vocabOf, load, merge, save, toText, termsText, toHtml, keyOf, clean };
 })();
