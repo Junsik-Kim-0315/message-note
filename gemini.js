@@ -39,6 +39,18 @@
   };
   window.MNDebug = Debug;
 
+  // Gemini 3 이후 모델은 생각 정도를 thinkingLevel(low·medium·high)로 받는다. 예전 숫자 예산(thinkingBudget)을 보내면
+  // 생각을 거의 안 하고 답해(디버그 로그에 생각 토큰이 0) 같은 설교도 정리할 때마다 결과가 들쭉날쭉했다.
+  // 3.6 이후 모델은 온도를 무시하고 앞으로는 거절하므로 보내지 않는다.
+  const isNewGen = (model) => /gemini-([3-9]|\d{2,})(\.|-|$)/i.test(String(model || ''));
+  const noTemp = (model) => { const m = String(model || '').match(/gemini-(\d+)(?:\.(\d+))?/i); if (!m) return false; const v = +m[1] + (m[2] ? +`0.${m[2]}` : 0); return v >= 3.6; };
+  const BUDGET = { low: 512, medium: 4096, high: 12288 }; // 2.5 모델용: 단계 이름을 예산으로
+  function thinkingConfig(model, thinking) {
+    if (thinking == null) return null;
+    if (typeof thinking === 'number') return { thinkingBudget: thinking }; // 받아쓰기(0) 등 예전 그대로
+    return isNewGen(model) ? { thinkingLevel: thinking } : { thinkingBudget: BUDGET[thinking] ?? 4096 };
+  }
+
   async function call(cfg, model, parts, { json = false, temperature = 0.3, timeoutMs = 120000, thinking = null, label = '' } = {}) {
     if (!cfg.key) throw new Error('설정에서 Gemini API 키를 넣어주세요.');
     const send = async (withThinking) => {
@@ -47,8 +59,9 @@
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
         // 긴 설교(90분 이상)는 노트 JSON이 길어 기본 출력 한도에서 잘린다 → 출력 한도를 넉넉히
-        const generationConfig = { temperature, maxOutputTokens: json ? 65536 : 16384, ...(json ? { responseMimeType: 'application/json' } : {}) };
-        if (withThinking && thinking != null) generationConfig.thinkingConfig = { thinkingBudget: thinking };
+        const generationConfig = { maxOutputTokens: json ? 65536 : 16384, ...(noTemp(model) ? {} : { temperature }), ...(json ? { responseMimeType: 'application/json' } : {}) };
+        const tc = withThinking ? thinkingConfig(model, thinking) : null;
+        if (tc) generationConfig.thinkingConfig = tc;
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
           method: 'POST',
           signal: ctrl.signal,
@@ -289,7 +302,7 @@ ${MARK_RULES}
 
 [받아쓰기]
 ${transcript}`;
-    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: 0, timeoutMs: longWait(90000, transcript, 1500, 200000), label: 'live' });
+    return call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.2, thinking: isNewGen(cfg.anaModel) ? 'low' : 0, timeoutMs: longWait(90000, transcript, 1500, 200000), label: 'live' });
   }
 
   // 최종 정리는 두 단계로 한다.
@@ -400,7 +413,7 @@ ${profileText}
 
 [받아쓰기 전체]
 ${transcript}`;
-    const opt = { json: true, temperature: 0.2, thinking: 2048, timeoutMs: longWait(300000, transcript, 4000, 600000), label: 'notes(1단계 설교 노트)' };
+    const opt = { json: true, temperature: 0.2, thinking: 'high', timeoutMs: longWait(420000, transcript, 4000, 720000), label: 'notes(1단계 설교 노트)' };
     try {
       return await call(cfg, cfg.anaModel, [{ text: prompt }], opt);
     } catch (e) {
@@ -630,6 +643,21 @@ ${transcript}`;
   const NOISE = /주의를\s*(환기|집중|끌)|분위기를\s*(풀|환기|띄|부드럽)|웃음을\s*(주|자아|유발)|(농담|우스갯소리)(으)?로\s*(시작|문을\s*열|주의|분위기)|인사말|광고|안부/;
   // 점검표 점수: 한 장 분량은 무게 3(한 장을 넘기면 PDF가 깨지므로 다른 항목보다 중요)
   const score = (ck) => ck.filter((c) => c.ok).length + (ck.find((c) => c.key === 'length')?.ok ? 2 : 0);
+  // 같은 요청이라도 모델 답이 매번 달라, 예전엔 사용자가 여러 번 돌려 괜찮은 것을 골랐다.
+  // 이제 앱이 같은 요청을 여러 개 동시에 보내 점검표 점수가 가장 높은 것을 고른다(걸리는 시간은 한 번과 거의 같다).
+  const DRAFTS = 3; // 정리본 첫 작성 후보 수
+  const FIXES = 2; // 보완 라운드마다 후보 수
+  async function bestOf(n, make, judge, tag) {
+    const res = await Promise.allSettled(Array.from({ length: n }, (_, i) => make(i)));
+    const ok = res.filter((r) => r.status === 'fulfilled' && r.value && Array.isArray(r.value.body) && r.value.body.length).map((r) => r.value);
+    if (!ok.length) { const bad = res.find((r) => r.status === 'rejected'); throw bad ? bad.reason : new Error('정리본을 만들지 못했어요. 다시 시도해 주세요.'); }
+    const scored = ok.map((d) => { const ck = judge(d); return { d, ck, sc: score(ck), len: lenOf(ck) }; })
+      // 점수가 같으면 한 장 분량에 더 가까운 것
+      .sort((a, b) => b.sc - a.sc || a.len - b.len);
+    Debug.log('best-of', { tag, tried: n, got: ok.length, scores: scored.map((x) => x.sc), picked: scored[0].sc });
+    return scored[0];
+  }
+  const lenOf = (ck) => { const m = String(ck.find((c) => c.key === 'length')?.detail || '').match(/(\d+)자/); return m ? +m[1] : 0; };
   // 농담 묘사 구절을 문장·구절 단위로 지운다. 문장 전체가 농담이면 문장을 빼고, '…농담으로 주의를 환기하며 ~'면 앞 구절만 뺀다.
   function stripNoise(doc) {
     let n = 0;
@@ -737,11 +765,13 @@ ${profileText}
 
 [설교 노트]
 ${JSON.stringify(notes, null, 1)}`;
-    const doc = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 1024, timeoutMs: 300000, label: 'doc(2단계 한 장 정리)' });
+    // 정리본 후보를 여러 개 동시에 만들어 점검표 점수가 가장 높은 것으로 시작한다
+    const first = await bestOf(DRAFTS, (i) => call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3 + i * 0.15, thinking: 'high', timeoutMs: 360000, label: `doc(2단계 한 장 정리 ${i + 1}/${DRAFTS})` }),
+      (d) => checkDoc(d, notes, theme, meta), 'doc');
     // 점검표로 한꺼번에 검사하고, 빠진 항목만 보충한다(최대 3번). 이미 맞는 부분은 그대로 둔다.
-    let out = doc;
+    let out = first.d;
     onStep?.(3);
-    let check = checkDoc(out, notes, theme, meta);
+    let check = first.ck;
     Debug.log('check', { round: 0, theme, mustKeys: counted, check: check.map(({ key, ok, detail }) => ({ key, ok, detail })) });
     for (let round = 0; round < 3 && check.some((c) => !c.ok); round++) {
       const miss = check.filter((c) => !c.ok);
@@ -750,7 +780,9 @@ ${JSON.stringify(notes, null, 1)}`;
         const fixPrompt = `아래 설교 정리본(JSON)을 점검표로 검사했더니 다음 항목이 빠졌거나 약합니다.
 ${miss.map((c, i) => `${i + 1}. ${c.label}: ${c.detail}\n   → ${c.fix}`).join('\n')}
 
-이미 통과한 항목(${check.filter((c) => c.ok).map((c) => c.label).join(', ') || '없음'})은 그대로 지키세요. 기존 문장·표시·예화를 지우거나 일반론으로 바꾸지 말고, 빠진 것만 보충하세요.
+이미 통과한 항목은 아래 기준을 계속 지켜야 합니다(보충하다가 이 항목이 빠지면 보충 결과는 버려집니다):
+${check.filter((c) => c.ok && c.key !== 'length').map((c) => `- ${c.label}: 지금 상태 ${c.detail}`).join('\n') || '- 없음'}
+기존 문장·표시·예화를 지우거나 일반론으로 바꾸지 말고, 빠진 것만 보충하세요. 특히 summary 3줄의 흐름(받은 은혜 → 싸울 것 → 그리하여 살 삶), 마귀 쪽 대지와 빨강 표시, 대지 안의 대조 짝은 건드리지 마세요.
 전체 분량(1,400~1,800자)과 대지 제목 길이(15자 안팎)는 지키세요. 보충한 만큼 다른 문장을 줄이고, 한 장에 넘치면 여러 관점·용어 풀이·묵상 질문을 줄이세요. 같은 JSON 형식과 표시 문법으로, JSON 하나만 출력하세요.
 ${MARK_RULES}
 
@@ -759,14 +791,14 @@ ${JSON.stringify(out, null, 1)}
 
 [설교 노트]
 ${JSON.stringify({ central_theme: notes.central_theme, flow3: notes.flow3, sections: notes.sections, theme_notes: notes.theme_notes, contrast: notes.contrast, break_keys: notes.break_keys, spiritual_warfare: notes.spiritual_warfare, christ_side: notes.christ_side, text_keys: notes.text_keys, detail_keys: notes.detail_keys, points: notes.points }, null, 1)}`;
-        const fixed = await call(cfg, cfg.anaModel, [{ text: fixPrompt }], { json: true, temperature: 0.2, thinking: 1024, timeoutMs: 300000, label: `fix(점검표 보충 ${round + 1})` });
-        if (fixed && Array.isArray(fixed.body) && fixed.body.length) {
-          const again = checkDoc(fixed, notes, theme, meta);
-          // 보충한 결과가 통과 항목을 더 잃지 않았을 때만 바꾼다
-          const accept = score(again) >= score(check);
-          Debug.log('check', { round: round + 1, accepted: accept, check: again.map(({ key, ok, detail }) => ({ key, ok, detail })) });
-          if (accept) { out = fixed; check = again; }
-        }
+        // 보충도 후보 여러 개를 동시에 만들어 가장 나은 것만 본다
+        const best = await bestOf(FIXES, (i) => call(cfg, cfg.anaModel, [{ text: fixPrompt }], { json: true, temperature: 0.2 + i * 0.2, thinking: 'high', timeoutMs: 360000, label: `fix(점검표 보충 ${round + 1}-${i + 1})` }),
+          (d) => checkDoc(d, notes, theme, meta), `fix${round + 1}`);
+        // 보충한 결과가 점수를 올렸을 때만 바꾼다(같은 점수면 그대로 두어 이리저리 흔들리지 않게)
+        const accept = best.sc > score(check);
+        Debug.log('check', { round: round + 1, accepted: accept, check: best.ck.map(({ key, ok, detail }) => ({ key, ok, detail })) });
+        if (accept) { out = best.d; check = best.ck; }
+        else if (round >= 1) break; // 두 번째 보완부터는 나아지지 않으면 더 돌리지 않는다
       } catch (e) { Debug.log('fix-error', { round: round + 1, message: e.message }); if (!/연결|network|load failed|fetch/i.test(e.message)) break; /* 연결 문제면 다음 라운드로 한 번 더, 그 밖의 실패는 지금 결과로 진행 */ }
     }
     // 한 장을 넘으면 줄이기만 하는 단계를 한 번 더 한다(내용·표시는 그대로, 문장만 압축)
@@ -782,7 +814,7 @@ ${MARK_RULES}
 
 [정리본]
 ${JSON.stringify(out, null, 1)}`;
-        const short = await call(cfg, cfg.anaModel, [{ text: shortPrompt }], { json: true, temperature: 0.2, thinking: 512, timeoutMs: 240000, label: 'shorten(한 장으로 줄이기)' });
+        const short = await call(cfg, cfg.anaModel, [{ text: shortPrompt }], { json: true, temperature: 0.2, thinking: 'medium', timeoutMs: 300000, label: 'shorten(한 장으로 줄이기)' });
         if (short && Array.isArray(short.body) && short.body.length) {
           const again = checkDoc(short, notes, theme, meta);
           const lenOk = again.find((c) => c.key === 'length')?.ok;
@@ -834,7 +866,7 @@ ${MARK_RULES}
 ${JSON.stringify(src, null, 1)}`;
     Debug.begin('paragraph', { meta: { ...meta } });
     let r;
-    try { r = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 512, timeoutMs: 180000, label: 'paragraph(한 문단)' }); Debug.end('ok'); }
+    try { r = await call(cfg, cfg.anaModel, [{ text: prompt }], { json: true, temperature: 0.3, thinking: 'medium', timeoutMs: 240000, label: 'paragraph(한 문단)' }); Debug.end('ok'); }
     catch (e) { Debug.end('error'); throw e; }
     return String(r.paragraph || '').trim();
   }
