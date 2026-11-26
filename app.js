@@ -38,7 +38,7 @@
   function persist() {
     const meta = readMeta();
     S.meta = meta;
-    store.set('mn_session', { ...S, segments: S.segments.map(({ i, t, len, status, text }) => ({ i, t, len, status, text })) });
+    store.set('mn_session', { ...S, segments: S.segments.map(({ i, t, len, ov, status, text }) => ({ i, t, len, ov, status, text })) });
   }
 
   // ---------- 화면 공통 ----------
@@ -134,7 +134,36 @@
   });
 
   // ---------- 받아쓰기 목록 ----------
-  const transcriptText = () => S.segments.filter((s) => (s.status === 'done' || s.status === 'gap') && s.text).map((s) => s.text).join('\n');
+  // 녹음 파일 구간은 끝을 OVERLAP_SEC만큼 다음 구간과 겹쳐 보낸다(구간 경계에서 말이 잘려 빠지지 않게).
+  // 합칠 때 겹친 말은 한 번만 남긴다: 앞 구간의 끊긴 마지막 문장은 버리고, 뒷 구간 머리에서 앞 구간과 겹친 부분을 덜어 낸다.
+  const OVERLAP_SEC = 15;
+  const nrm = (s) => String(s || '').replace(/[^가-힣a-zA-Z0-9]/g, '');
+  function joinOverlap(prev, next) {
+    const frag = (prev.match(/[.?!]["”']?\s+([^.?!]*)$/) || [])[1] || '';
+    const prevCut = frag && frag.length < 150 ? prev.slice(0, prev.length - frag.length).trimEnd() : prev;
+    const tail = nrm(prevCut.slice(-700));
+    const grams = new Set(); for (let k = 0; k < tail.length - 1; k++) grams.add(tail.slice(k, k + 2));
+    const head = next.slice(0, 900);
+    let best = 0, bestScore = 0;
+    for (const m of head.matchAll(/\s+|$/g)) {
+      const h = nrm(head.slice(0, m.index));
+      if (h.length < 12) continue;
+      let hit = 0; for (let k = 0; k < h.length - 1; k++) if (grams.has(h.slice(k, k + 2))) hit++;
+      const score = hit - 2 * (h.length - 1 - hit); // 겹친 말이 끝나고 새 말이 시작되면 점수가 떨어진다
+      if (score > bestScore) { bestScore = score; best = m.index; }
+    }
+    return bestScore >= 12 ? [prevCut, next.slice(best).trimStart()] : [prev, next];
+  }
+  const transcriptText = () => {
+    const segs = S.segments.filter((s) => (s.status === 'done' || s.status === 'gap') && s.text);
+    const out = segs.map((s) => s.text);
+    for (let k = 1; k < segs.length; k++) {
+      const a = segs[k - 1];
+      if (!a.ov || Math.abs(a.t + a.len - segs[k].t) > 1) continue; // 겹쳐 보낸 이웃 구간만
+      [out[k - 1], out[k]] = joinOverlap(out[k - 1], out[k]);
+    }
+    return out.join('\n');
+  };
 
   function renderSegments() {
     $('trEmpty').hidden = S.segments.length > 0;
@@ -506,7 +535,7 @@
     const meta = readMeta();
     const entry = {
       id: S.id, savedAt: Date.now(), meta, elapsed: S.elapsed, saved: S.saved, driveTx: S.driveTx, driveIds: S.driveIds, fileSig: S.fileSig,
-      segments: S.segments.filter((s) => s.text).map(({ i, t, len, status, text }) => ({ i, t, len, status, text })),
+      segments: S.segments.filter((s) => s.text).map(({ i, t, len, ov, status, text }) => ({ i, t, len, ov, status, text })),
       final: S.final ? { ...S.final, _notes: undefined } : null,
     };
     const list = loadHistory().filter((h) => h.id !== S.id);
@@ -807,8 +836,9 @@
       sig: sigOf(file),
       makeSource: (seg) => {
         const len = seg.len || step;
-        const a = Math.max(0, Math.floor(seg.t * bps)), b = Math.min(file.size, Math.ceil((seg.t + len) * bps));
-        return { blob: file.slice(a, b, 'audio/mpeg'), mime: 'audio/mp3', sec: len };
+        const ov = seg.t + len < total - 1 ? OVERLAP_SEC : 0; seg.ov = ov; // 다음 구간과 겹치게
+        const a = Math.max(0, Math.floor(seg.t * bps)), b = Math.min(file.size, Math.ceil((seg.t + len + ov) * bps));
+        return { blob: file.slice(a, b, 'audio/mpeg'), mime: 'audio/mp3', sec: len + ov };
       },
     };
   }
@@ -819,7 +849,7 @@
     flow(0, 'active', '녹음 파일 올리는 중 0%', '와이파이에서 화면을 켜 둔 채로 기다려 주세요');
     const ref = await Gemini.uploadFile(cfg, file, (p) => flow(0, 'active', `녹음 파일 올리는 중 ${Math.round(p * 100)}%`, p >= 1 ? 'Gemini가 파일을 처리하고 있어요' : '와이파이에서 화면을 켜 둔 채로 기다려 주세요'));
     if (!resume) planSegments(total, REMOTE_SEG_SEC);
-    fileJob = { sig: sigOf(file), makeSource: (seg) => ({ remote: ref, from: seg.t, to: seg.t + (seg.len || REMOTE_SEG_SEC) }) };
+    fileJob = { sig: sigOf(file), makeSource: (seg) => { const end = seg.t + (seg.len || REMOTE_SEG_SEC); seg.ov = end < total - 1 ? OVERLAP_SEC : 0; return { remote: ref, from: seg.t, to: Math.min(total, end + seg.ov) }; } };
   }
 
   async function prepareDecoded(file, resume) {
@@ -845,7 +875,8 @@
     fileJob = {
       sig: sigOf(file),
       makeSource: (seg) => {
-        const slice = ch.subarray(Math.floor(seg.t * rate), Math.floor((seg.t + (seg.len || FILE_SEG_SEC)) * rate));
+        const end = seg.t + (seg.len || FILE_SEG_SEC); seg.ov = end < audio.duration - 1 ? OVERLAP_SEC : 0;
+        const slice = ch.subarray(Math.floor(seg.t * rate), Math.floor((end + seg.ov) * rate));
         return rate === TARGET_RATE ? encodeWav(slice) : encodeWav(downsample([slice], rate));
       },
     };
