@@ -645,7 +645,7 @@ ${transcript}`;
   const score = (ck) => ck.filter((c) => c.ok).length + (ck.find((c) => c.key === 'length')?.ok ? 2 : 0);
   // 같은 요청이라도 모델 답이 매번 달라, 예전엔 사용자가 여러 번 돌려 괜찮은 것을 골랐다.
   // 이제 앱이 같은 요청을 여러 개 동시에 보내 점검표 점수가 가장 높은 것을 고른다(걸리는 시간은 한 번과 거의 같다).
-  const DRAFTS = 3; // 정리본 첫 작성 후보 수
+  const DRAFTS = 2; // 정리본 첫 작성 후보 수
   const FIXES = 2; // 보완 라운드마다 후보 수
   async function bestOf(n, make, judge, tag) {
     const res = await Promise.allSettled(Array.from({ length: n }, (_, i) => make(i)));

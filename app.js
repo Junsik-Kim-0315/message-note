@@ -980,7 +980,7 @@
       window.MN_REPEATED = Learn.repeated(cleaned.text.length > 50 ? cleaned.text : text, 10); // 직접 센 반복 상위어 [[말, 횟수]]
       window.MN_SIGNALS = Learn.signals(cleaned.text.length > 50 ? cleaned.text : text); // 설교자가 결론지은 문장(문맥 신호)
       const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n, info) => {
-        if (n === 2) finalStep(2, '정리본 작성', '정리본 후보 3개를 함께 만들어 점검표로 가장 나은 것을 고르고 있어요');
+        if (n === 2) finalStep(2, '정리본 작성', '정리본 후보 2개를 함께 만들어 점검표로 가장 나은 것을 고르고 있어요');
         if (n === 3) finalStep(3, '점검·보완', info?.round === 'shorten' ? '한 장에 맞게 줄이고 있어요' : info?.round ? `점검표에서 빠진 ${info.miss}개 항목을 보완하고 있어요 (보완 ${info.round}회째, 최대 3회)` : '점검표로 빠진 곳이 없는지 확인하고 있어요');
       }, Learn.toText(profile));
       // 이번 설교의 구조·용어 교정을 쌓아 다음 정리에 반영
