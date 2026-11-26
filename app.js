@@ -977,6 +977,7 @@
       window.MN_VOCAB = Learn.vocabOf(profile);
       const cleaned = Learn.clean(text); // 시간 표시·겹친 문단 같은 잡음 제거
       window.MN_CORE_CANDS = Learn.coreCands(cleaned.text.length > 50 ? cleaned.text : text); // 설교자가 밝힌 핵심 후보 문장
+      window.MN_NUMBERED = Learn.numbered(cleaned.text.length > 50 ? cleaned.text : text); // 순서를 매긴 요점(세 번째는…)과 그 구절
       window.MN_REPEATED = Learn.repeated(cleaned.text.length > 50 ? cleaned.text : text, 10); // 직접 센 반복 상위어 [[말, 횟수]]
       window.MN_SIGNALS = Learn.signals(cleaned.text.length > 50 ? cleaned.text : text); // 설교자가 결론지은 문장(문맥 신호)
       const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n, info) => {
