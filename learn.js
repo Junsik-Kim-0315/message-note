@@ -136,7 +136,9 @@
         .replace(/^\s*church\s+[\d\-]+\s+[\d:]+\s*~\s*[\d:]+\s*/i, '')
         .replace(/^\s*(유튜브|youtube)\s*[:：]\s*\(?\d{1,2}:\d{2}(:\d{2})?\)?\s*/i, '')
         .replace(/^\s*[{}\[\]]+\s*/, '')
-        .replace(/^\s*\(?\d{1,2}:\d{2}(:\d{2})?\)?\s*/, '');
+        .replace(/^\s*\(?\d{1,2}:\d{2}(:\d{2})?\)?\s*/, '')
+        .replace(/^\s*(thought|thinking)\s*$/i, '') // 모델이 흘린 생각 표시
+        .replace(/(^|[\s가-힣.,?!])0\d:[0-5]\d(?=[\s가-힣"“'])/g, '$1 '); // 문장 사이에 끼어든 구간 시간(02:42)
       if (line !== before) removed++;
       return line;
     });
