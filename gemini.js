@@ -9,7 +9,8 @@
 - [[t|...]] 핵심 용어(굵게+밑줄): 은혜, 언약, 회개 같은 신앙 핵심 용어가 처음 나올 때.
 - [[v|...]] 성경 구절 인용: 예) [[v|요한복음 3:16]] 또는 인용된 말씀 본문.
 표시는 겹치지 않게, 강조할 부분만 짧게 감싼다. 빨강은 마귀 쪽 문장·구절에만 칠하고, 여러 문장을 한꺼번에 감싸지 않는다. 같은 인용 안이라도 은혜·그리스도 쪽 문장(예: '이게 진짜 보여야 여러분이 은혜 속에서 사는 거예요')은 빨강 밖에 두고 필요하면 초록이나 노랑으로 칠한다. 한 문장 안에서 뉘앙스가 바뀌면 구절로 나눠 칠한다(예: '[[r|흑암 경제가 무너지고]] [[g|다음 세대를 살릴 미래 성전이 세워집니다]]').
-호칭: 정리본에서는 '주님' 대신 '그리스도'(또는 '예수 그리스도')라고 쓴다.`;
+호칭: 정리본에서는 '주님' 대신 '그리스도'(또는 '예수 그리스도')라고 쓴다.
+문체: '설교자는 ~라고 일갈한다/강조한다/말한다', '목사님은 ~라고 했다'처럼 설교자를 주어로 한 3인칭 전달 문장을 쓰지 않는다. 말씀 내용을 직접 서술한다(예: '설교자는 「하나님을 대적하는 죄가 뭐냐? 언약으로 영적 싸움 안 하는 거」라고 일갈한다' → '하나님을 대적하는 죄는 언약을 가지고도 언약으로 영적 싸움을 하지 않는 것이다').`;
 
   // thinking: 생각 단계 예산(0이면 끔). 받아쓰기는 생각이 필요 없고 느려지기만 해서 끈다.
   // 긴 설교(90분 이상)일수록 응답이 오래 걸리니 받아쓰기 길이에 맞춰 기다리는 시간을 늘린다
@@ -641,6 +642,10 @@ ${transcript}`;
     const noise = noiseTxt.filter((t) => NOISE.test(window.Markup.strip(t)));
     add('noise', '핵심과 상관없는 분위기 환기·인사·광고 없음', !noise.length, noise.length ? `들어감: ${noise.map((t) => window.Markup.strip(t).match(NOISE)[0]).join(', ')}` : '없음',
       '\'농담으로 주의를 환기하며\'처럼 설교자 행동만 묘사한 말과 인사·광고를 빼세요. 그 농담이 핵심이나 흐름에 이어진다면 행동 묘사 대신 무엇과 어떻게 이어지는지(예: ~처럼 인생도 바꿔야 한다)로 고쳐 쓰고, 이어지지 않으면 빼세요.');
+    // 설교자를 주어로 한 3인칭 전달 문장('설교자는 ~라고 일갈한다') 금지(사용자 요청 2026-11-26)
+    const voice = noiseTxt.filter((t) => VOICE.test(window.Markup.strip(t)));
+    add('voice', "'설교자는 ~라고 한다' 문장 없음", !voice.length, voice.length ? `${voice.length}곳` : '없음',
+      "'설교자는 ~라고 일갈한다/강조한다/말한다'처럼 설교자를 주어로 전하는 문장을, 말씀 내용을 직접 서술하는 문장으로 고치세요(예: '하나님을 대적하는 죄는 언약으로 영적 싸움을 하지 않는 것이다').");
     add('length', '한 장 분량', len <= 2000 && !longHead, `본문 ${len}자${longHead ? `, 긴 대지 제목 ${longHead}개` : ''}`,
       `전체를 1,500~1,800자로 줄이고(덜 중요한 설명부터, 그리스도 쪽과 반대쪽 대조 짝·마귀를 깨뜨리는 선포는 줄이지 말고), 대지 제목은 15자 안팎으로 짧게 쓰세요. 통과한 항목의 핵심은 지키세요.`);
     return items;
@@ -649,6 +654,26 @@ ${transcript}`;
   // 말씀 밖 내용(농담·외모·인사·광고·분위기 환기)과 설교자 행동 묘사
   // 핵심과 상관없이 주의를 끌거나 분위기를 푸는 데 쓴 말과 그 행동 묘사, 인사·광고. 농담 자체는 핵심·흐름에 이어지면 넣어도 된다(사용자 기준).
   const NOISE = /주의를\s*(환기|집중|끌)|분위기를\s*(풀|환기|띄|부드럽)|웃음을\s*(주|자아|유발)|(농담|우스갯소리)(으)?로\s*(시작|문을\s*열|주의|분위기)|인사말|광고|안부/;
+  const VOICE = /(설교자|목사님?|강사)(은|는|이|가|께서는?|께서)\s/;
+  // 보완 뒤에도 남은 '설교자는 …라고 일갈한다' 문장을 앱이 직접 서술로 바꾼다(따옴표 속 말씀만 남김)
+  const SAY = '(일갈|강조|말|선포|지적|설명|역설|호소|단언|당부|권면|경고|도전|외치|말씀|고백|질문|선언|정의|진단)';
+  function fixVoice(doc) {
+    let n = 0;
+    const re1 = new RegExp(`(설교자|목사님?|강사)(은|는|이|가|께서는?|께서)\\s*[‘'"“「]([^’'"”」]+)[’'"”」]\\s*(이)?(라고|고|며)\\s*${SAY}[가-힣]*`, 'g');
+    const re2 = new RegExp(`(설교자|목사님?|강사)(은|는|이|가|께서는?|께서)\\s*`, 'g');
+    const one = (t) => {
+      if (typeof t !== 'string' || !VOICE.test(window.Markup.strip(t))) return t;
+      n++;
+      let s = t.replace(re1, (m, a, b, q) => { const x = q.trim().replace(/[.?!]$/, ''); return /[다요]$/.test(x) ? x : /거$/.test(x) ? x.replace(/거$/, '것이다') : `${x}이다`; });
+      // 따옴표 없이 '설교자는 ~을 강조한다'면 주어만 뺀다
+      s = s.replace(re2, '');
+      return s;
+    };
+    const arr = (a) => (Array.isArray(a) ? a.map(one) : one(a));
+    doc.one_line = one(doc.one_line); doc.intro = arr(doc.intro); doc.summary = arr(doc.summary); doc.conclusion = arr(doc.conclusion);
+    (doc.body || []).forEach((b) => { b.paragraphs = arr(b.paragraphs); });
+    return n;
+  }
   // 점검표 점수: 한 장 분량은 무게 3(한 장을 넘기면 PDF가 깨지므로 다른 항목보다 중요)
   const score = (ck) => ck.filter((c) => c.ok).length + (ck.find((c) => c.key === 'length')?.ok ? 2 : 0);
   // 같은 요청이라도 모델 답이 매번 달라, 예전엔 사용자가 여러 번 돌려 괜찮은 것을 골랐다.
@@ -766,7 +791,7 @@ ${mustKeys.length ? `- 받아쓰기에 나온 다음 핵심어는 정리본에 �
  "questions": ["묵상·적용 질문 2~3개"]
 }
 분량(전체 1,400~1,800자): summary 3줄 / intro 2~3문장 / body 대지 3~5개(중심 주제·제목의 말을 풀려면 대지를 늘리세요), 대지마다 1문단 3~4문장 / conclusion 2문장 / key_terms 최대 3개.
-문장은 설교자의 말투를 살리되 간결한 문어체로 쓰세요.
+문장은 설교자의 말투를 살리되 간결한 문어체로 쓰고, '설교자는 ~라고 한다'처럼 설교자를 주어로 전하지 말고 말씀 내용을 직접 서술하세요.
 ${profileText ? `[이 설교자의 평소 설교 구조 — 대지 구분과 비중을 정할 때 참고]
 ${profileText}
 ` : ''}${MARK_RULES}
@@ -834,6 +859,26 @@ ${JSON.stringify(out, null, 1)}`;
     }
     // 마지막 안전장치: 그래도 남은 '주의 환기' 묘사·인사·광고 구절만 앱이 지운다(핵심에 이어진 농담 내용은 남긴다)
     if (stripNoise(out)) check = checkDoc(out, notes, theme, meta);
+    // '설교자는 ~라고 일갈한다' 문장이 남았으면 그 문장만 모델에게 직접 서술로 고쳐 달라고 한 번 더 묻고, 그래도 남으면 앱이 바꾼다
+    const vSents = () => [out.one_line, ...(out.summary || []), ...(out.intro || []), ...(out.body || []).flatMap((b) => b.paragraphs || []), ...(out.conclusion || [])]
+      .filter((t) => typeof t === 'string').flatMap((t) => t.split(/(?<=[.?!])\s+/)).filter((s) => VOICE.test(window.Markup.strip(s)));
+    const vs = vSents();
+    if (vs.length) {
+      try {
+        const r = await call(cfg, cfg.anaModel, [{ text: `다음 문장들은 '설교자는 ~라고 한다'처럼 설교자를 주어로 전하고 있습니다. 각 문장을 말씀 내용을 직접 서술하는 문장으로 고치세요. 뜻, 성경 구절, 표시 문법([[g|…]] [[r|…]] [[y|…]] [[t|…]] [[v|…]])은 그대로 두고, 길이는 비슷하게, 간결한 문어체로.
+예: '이사야 34:1-2의 만국 심판 앞에서 설교자는 「하나님을 대적하는 죄가 뭐냐? 언약을 가지고 언약으로 영적 싸움 안 하는 거」라고 일갈한다.' → '이사야 34:1-2의 만국 심판 앞에서 하나님을 대적하는 죄는 언약을 가지고도 언약으로 영적 싸움을 하지 않는 것이다.'
+JSON 하나만 출력하세요: {"fixed": ["고친 문장(입력 순서대로)"]}
+${vs.map((s, i) => `${i + 1}. ${s}`).join('\n')}` }], { json: true, temperature: 0.2, thinking: 'medium', timeoutMs: 120000, label: 'voice(설교자 3인칭 문장 고치기)' });
+        const fx = Array.isArray(r?.fixed) ? r.fixed : [];
+        if (fx.length === vs.length) {
+          const swap = (t) => (typeof t === 'string' ? vs.reduce((acc, s, i) => (fx[i] && !VOICE.test(window.Markup.strip(fx[i])) ? acc.replace(s, fx[i]) : acc), t) : t);
+          const arr = (a) => (Array.isArray(a) ? a.map(swap) : swap(a));
+          out.one_line = swap(out.one_line); out.summary = arr(out.summary); out.intro = arr(out.intro); out.conclusion = arr(out.conclusion);
+          (out.body || []).forEach((b) => { b.paragraphs = arr(b.paragraphs); });
+        }
+      } catch (e) { Debug.log('fix-error', { round: 'voice', message: e.message }); }
+    }
+    if (fixVoice(out) || vs.length) check = checkDoc(out, notes, theme, meta);
     // 설교자가 직접 밝힌 핵심은 모델이 바꿔 쓰거나 빼먹는 일이 잦아, 노트의 원문을 정리본에 그대로 넣는다
     const sc = tidyCore(notes.stated_core);
     if (sc && (!out.stated_core || overlap(sc, norm(out.stated_core)) < 0.6)) {
