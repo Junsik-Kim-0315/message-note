@@ -52,10 +52,22 @@
     return isNewGen(model) ? { thinkingLevel: thinking } : { thinkingBudget: BUDGET[thinking] ?? 4096 };
   }
 
+  // ---------- 작업 중단 ----------
+  // 사용자가 '중단'을 누르면 보내고 있는 요청을 모두 끊고, 다음 작업을 시작할 때(resume)까지 새 요청도 막는다.
+  // (정리 단계 안에서 실패를 삼키고 다음 요청으로 넘어가는 곳이 있어서, 끊기만 하면 다음 요청이 또 나간다)
+  let stopped = false;
+  const inflight = new Set();
+  const cancelErr = () => { const e = new Error('중단했어요'); e.cancelled = true; e.status = 'cancel'; return e; };
+  function cancelAll() { stopped = true; inflight.forEach((c) => c.abort()); inflight.clear(); }
+  function resume() { stopped = false; }
+  const isCancel = (e) => !!(e && e.cancelled);
+
   async function call(cfg, model, parts, { json = false, temperature = 0.3, timeoutMs = 120000, thinking = null, label = '' } = {}) {
     if (!cfg.key) throw new Error('설정에서 Gemini API 키를 넣어주세요.');
     const send = async (withThinking) => {
+      if (stopped) throw cancelErr();
       const ctrl = new AbortController();
+      inflight.add(ctrl);
       const t0 = Date.now();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
@@ -96,12 +108,14 @@
           throw e;
         }
       } catch (e) {
+        if (stopped) { Debug.log('gemini-error', { label, model, status: 'cancelled', ms: Date.now() - t0 }); throw cancelErr(); }
         if (e.name === 'AbortError') Debug.log('gemini-error', { label, model, status: 'timeout', ms: Date.now() - t0 });
         else if (e.badJson) Debug.log('gemini-error', { label, model, status: 'bad-json', message: e.message, finish: e.finish || '' });
         if (e.name === 'AbortError') { const t = new Error(`Gemini 응답이 너무 오래 걸려요 (${Math.round(timeoutMs / 1000)}초 넘음).`); t.status = 'timeout'; throw t; }
         throw e;
       } finally {
         clearTimeout(timer);
+        inflight.delete(ctrl);
       }
     };
     // 네트워크가 잠깐 끊기면(아이폰 'Load failed', 'Failed to fetch') 3초·8초 뒤 다시 보낸다
@@ -119,7 +133,7 @@
       return await sendNet(true);
     } catch (e) {
       // JSON이 깨져 왔으면 한 번 더: 문법을 지키라는 말을 덧붙이고 온도를 낮춰 다시 요청
-      if (!e.badJson) throw e;
+      if (!e.badJson || stopped) throw stopped ? cancelErr() : e;
       const note = `\n\n[중요] 앞선 응답의 JSON 문법이 깨졌습니다(${e.truncated ? '길이 초과로 잘림' : '형식 오류'}). 이번에는 올바른 JSON만 출력하세요. 문자열 안에서는 큰따옴표(") 대신 작은따옴표(')나 「」를 쓰고, 항목 사이 쉼표를 빠뜨리지 말고, 인용은 짧게 줄여 전체를 더 간결하게 쓰세요.`;
       parts = parts.map((p, i) => (i === parts.length - 1 && p.text != null ? { text: p.text + note } : p));
       temperature = 0;
@@ -257,6 +271,11 @@ ${window.MN_TERMS ? `- 이전에 자주 잘못 받아쓴 말(잘못→바름): $
       x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
       x.onload = () => resolve({ status: x.status, text: x.responseText });
       x.onerror = () => reject(new Error('녹음 파일을 올리지 못했어요. 인터넷 연결을 확인해 주세요.'));
+      x.onabort = () => reject(cancelErr());
+      // 중단을 누르면 올리던 것도 멈춘다
+      const ctrl = { abort: () => x.abort() }; inflight.add(ctrl);
+      x.onloadend = () => inflight.delete(ctrl);
+      if (stopped) { reject(cancelErr()); return; }
       x.send(body);
     });
     let data = {};
@@ -266,6 +285,7 @@ ${window.MN_TERMS ? `- 이전에 자주 잘못 받아쓴 말(잘못→바름): $
     // 처리 완료(ACTIVE)까지 기다린다
     for (let i = 0; i < 90 && f.state === 'PROCESSING'; i++) {
       await new Promise((r) => setTimeout(r, 2000));
+      if (stopped) throw cancelErr();
       const r = await fetch(`${API}/v1beta/${f.name}`, { headers: { 'x-goog-api-key': cfg.key } });
       if (r.ok) f = await r.json();
     }
@@ -928,5 +948,5 @@ ${JSON.stringify(src, null, 1)}`;
     return call(cfg, cfg.anaModel, [{ text: '“확인”이라고만 답하세요.' }], { temperature: 0, timeoutMs: 30000 });
   }
 
-  window.Gemini = { transcribe, transcribePlain, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, checkDoc, pickRef, refClauses, ping };
+  window.Gemini = { cancelAll, resume, isCancel, transcribe, transcribePlain, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, checkDoc, pickRef, refClauses, ping };
 })();

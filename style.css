@@ -111,6 +111,9 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .progress .fill { height: 100%; width: 0; background: #2f6fd6; transition: width .4s; }
 .progress.has-fail .fill { background: var(--rec); }
 .progress .ptext { font-size: 13px; font-weight: 700; margin-top: 4px; }
+.progress .prow { display: flex; align-items: center; gap: 8px; }
+.progress .prow .ptext { flex: 1; min-width: 0; }
+.progress .stop-btn { flex: none; margin-top: 4px; padding: 4px 12px; border-radius: 99px; border: 1px solid var(--rec); background: transparent; color: var(--rec); font-size: 13px; font-weight: 700; }
 
 /* 진행 단계 */
 .steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 12px 0 8px; }
