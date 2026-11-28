@@ -126,6 +126,7 @@
   }
   // 받아쓰기 진행 막대 (화면 위에 고정)
   function updateProgress() {
+    if (finalBusy) return; // 최종 정리 중에는 정리 단계가 막대를 쓴다
     const segs = S.segments.filter((s) => s.status !== 'gap');
     const busy = segs.some((s) => s.status === 'pending');
     const bar = $('progress');
@@ -205,6 +206,8 @@
     if (i == null) return;
     const seg = S.segments.find((s) => s.i === Number(i));
     if (!wavs.has(seg.i) && fileJob && S.fileSig === fileJob.sig) wavs.set(seg.i, () => fileJob.makeSource(seg));
+    if (fileBusy || finalBusy) { toast('지금 하던 작업이 끝나거나 중단한 뒤에 다시 눌러 주세요.'); return; }
+    stopFlag = false; Gemini.resume();
     seg.status = 'pending'; renderSegments();
     if (fileJob && S.fileSig === fileJob.sig) { await transcribeSeg(seg, ''); renderSegments(); persist(); } else enqueue(seg);
   });
@@ -277,6 +280,27 @@
     return kept.join('\n').trim();
   }
 
+  // ---------- 작업 중단 ----------
+  // 받아쓰기(녹음 파일)나 최종 정리가 돌아가는 동안 위 진행 막대에 '중단' 버튼을 보여 준다.
+  // 누르면 보내던 요청을 끊고, 기다리던 것도 멈춘다. 받아쓴 구간은 남기고, 정리 결과는 예전 것을 그대로 둔다.
+  let stopFlag = false, fileBusy = false;
+  const stopWakers = new Set();
+  const sleep = (ms) => new Promise((r) => {
+    const done = () => { clearTimeout(t); stopWakers.delete(done); r(); };
+    const t = setTimeout(done, ms); stopWakers.add(done);
+  });
+  function beginJob() { if (!fileBusy && !finalBusy) { stopFlag = false; Gemini.resume(); } }
+  function syncStop() { $('btnStop').hidden = !(fileBusy || finalBusy) || stopFlag; }
+  $('btnStop').addEventListener('click', () => {
+    if (!(fileBusy || finalBusy) || stopFlag) return;
+    if (!confirm(finalBusy ? '정리를 중단할까요?\n(받아쓰기는 그대로 남고, 나중에 \'정리만 다시 하기\'로 다시 할 수 있어요)' : '받아쓰기를 중단할까요?\n(받아쓴 구간은 남고, 나중에 같은 파일을 다시 고르면 남은 구간만 이어서 해요)')) return;
+    stopFlag = true;
+    Gemini.cancelAll();
+    stopWakers.forEach((f) => f());
+    syncStop();
+    $('progress').querySelector('.ptext').textContent = '중단하는 중…';
+  });
+
   // 받아쓰기 요청 속도 조절: 무료 키는 분당 요청 수 한도가 낮아서(약 10회) 몰아 보내면 429로 실패한다
   let nextSlot = 0;
   async function rateGate() {
@@ -284,7 +308,7 @@
     const now = Date.now();
     const wait = Math.max(0, nextSlot - now);
     nextSlot = Math.max(now, nextSlot) + gap;
-    if (wait) await new Promise((r) => setTimeout(r, wait));
+    if (wait) await sleep(wait);
   }
 
   async function transcribeSeg(seg, prevTail) {
@@ -297,6 +321,7 @@
     for (let attempt = 0; attempt < 8; attempt++) {
       try {
         await rateGate();
+        if (stopFlag) { seg.status = 'failed'; seg.err = '중단했어요'; return; }
         seg.text = wav.remote
           ? await Gemini.transcribeRange(cfg, wav.remote, wav.from, wav.to)
           : wav.blob
@@ -315,6 +340,7 @@
         return;
       } catch (e) {
         seg.err = e.message;
+        if (stopFlag || Gemini.isCancel(e)) { seg.status = 'failed'; seg.err = '중단했어요'; return; }
         const limited = e.status === 429 || e.status === 503;
         if (!limited) other++;
         if (other >= 3 || attempt === 7) { seg.status = 'failed'; return; }
@@ -323,7 +349,7 @@
         if (limited) nextSlot = Math.max(nextSlot, Date.now() + wait);
         seg.waitUntil = Date.now() + wait;
         renderSegments(); updateProgress();
-        await new Promise((r) => setTimeout(r, wait));
+        await sleep(wait);
         seg.waitUntil = 0;
       }
     }
@@ -517,6 +543,7 @@
     if (!cfg.key) { openSettings(); toast('먼저 Gemini API 키를 넣어주세요.'); return; }
     if (!confirmNew()) return;
     if (!S.meta.date) S.meta.date = today();
+    if (!fileBusy && !finalBusy) { stopFlag = false; Gemini.resume(); }
     rec = { cap: null, rate: 0, chunks: [], len: 0, startedAt: Date.now(), segStart: S.elapsed, droppedAt: null, hiddenAt: null };
     try { await openCapture(); }
     catch (e) { rec = null; toast('마이크를 쓸 수 없어요. Safari 설정에서 마이크를 허용해 주세요.', 4000); return; }
@@ -811,6 +838,11 @@
   async function processFile(file) {
     if (!cfg.key) { openSettings(); toast('먼저 Gemini API 키를 넣어주세요.'); return; }
     if (rec) { toast('녹음 중에는 파일을 올릴 수 없어요.'); return; }
+    if (fileBusy || finalBusy) { toast('지금 하던 작업이 끝나거나 중단한 뒤에 다시 골라 주세요.'); return; }
+    beginJob(); fileBusy = true; syncStop();
+    try { await processFileInner(file); } finally { fileBusy = false; syncStop(); }
+  }
+  async function processFileInner(file) {
     const sig = sigOf(file);
     // 같은 파일을 다시 고르면: 끝난 구간은 두고 실패·미완료 구간만 이어서
     const resume = S.fileSig === sig && S.segments.some((s) => s.status !== 'done' && s.status !== 'gap');
@@ -826,7 +858,8 @@
       else if (file.size > BIG_FILE) await prepareRemote(file, resume);
       else await prepareDecoded(file, resume);
     } catch (e) {
-      flow(0, 'error', '녹음 파일을 준비하지 못했어요', e.message);
+      if (stopFlag || Gemini.isCancel(e)) flow(0, 'error', '중단했어요', '같은 파일을 다시 고르면 이어서 해요');
+      else flow(0, 'error', '녹음 파일을 준비하지 못했어요', e.message);
       return;
     }
     const todo = S.segments.filter((s) => s.status !== 'done' && s.status !== 'gap');
@@ -906,13 +939,21 @@
     // 2개씩 동시에 받아쓰기 (속도는 rateGate가 조절)
     let next = 0;
     const worker = async () => {
-      while (next < list.length) {
+      while (next < list.length && !stopFlag) {
         const seg = list[next++];
         await transcribeSeg(seg, '');
         done++; update(); renderSegments(); persist();
       }
     };
     await Promise.all([worker(), worker()]);
+    if (stopFlag) {
+      // 아직 안 한 구간은 '실패'로 돌려 두면 '실패한 구간 다시'나 같은 파일 다시 고르기로 이어서 할 수 있다
+      list.forEach((s) => { if (s.status === 'pending') { s.status = 'failed'; s.err = '중단했어요'; } });
+      persist(); renderAll();
+      const left = list.filter((s) => s.status !== 'done').length;
+      flow(1, 'error', '받아쓰기를 중단했어요', `${list.length - left ? `받아쓴 ${list.length - left}구간은 남아 있어요. ` : ''}이어서 하려면 받아쓰기 탭의 '실패한 구간 다시'를 누르세요.`);
+      return;
+    }
     persist();
     renderAll();
     const failed = S.segments.filter((s) => s.status === 'failed').length;
@@ -930,9 +971,14 @@
     const canFile = fileJob && S.fileSig === fileJob.sig;
     const live = failed.filter((s) => wavs.has(s.i) && !canFile);
     if (canFile) {
-      failed.forEach((s) => { s.status = 'pending'; if (!wavs.has(s.i)) wavs.set(s.i, () => fileJob.makeSource(s)); });
-      await runFileSegments(failed);
+      if (fileBusy || finalBusy) { toast('지금 하던 작업이 끝나거나 중단한 뒤에 다시 눌러 주세요.'); return; }
+      beginJob(); fileBusy = true; syncStop();
+      try {
+        failed.forEach((s) => { s.status = 'pending'; if (!wavs.has(s.i)) wavs.set(s.i, () => fileJob.makeSource(s)); });
+        await runFileSegments(failed);
+      } finally { fileBusy = false; syncStop(); }
     } else if (live.length) {
+      Gemini.resume(); stopFlag = false;
       live.forEach((s) => { s.status = 'pending'; enqueue(s); });
       renderSegments();
     } else {
@@ -1004,7 +1050,9 @@
     const text = edited || transcriptText();
     if (text.length < 50) { flow(1, 'error', '받아쓴 내용이 너무 적어요', '녹음이 제대로 됐는지 받아쓰기 탭에서 확인해 주세요'); toast('받아쓴 내용이 너무 적어서 정리할 수 없어요.'); return; }
     if (finalBusy) return;
-    finalBusy = true;
+    if (!fileBusy) beginJob(); // 받아쓰기에 이어서 정리할 때는 받아쓰기 중단 상태를 그대로 따른다
+    if (stopFlag) return;
+    finalBusy = true; syncStop();
     // 정리 중 화면이 꺼지면 아이폰이 요청을 끊는다('Load failed') → 정리하는 동안 화면을 켜 둔다
     const ownLock = !wakeLock; if (ownLock) await lockScreen();
     autoSaveTranscript();
@@ -1030,6 +1078,7 @@
         if (n === 2) finalStep(2, '정리본 작성', '정리본 후보 2개를 함께 만들어 점검표로 가장 나은 것을 고르고 있어요');
         if (n === 3) finalStep(3, '점검·보완', info?.round === 'shorten' ? '한 장에 맞게 줄이고 있어요' : info?.round ? `점검표에서 빠진 ${info.miss}개 항목을 보완하고 있어요 (보완 ${info.round}회째, 최대 3회)` : '점검표로 빠진 곳이 없는지 확인하고 있어요');
       }, Learn.toText(profile));
+      if (stopFlag) throw Object.assign(new Error('중단했어요'), { cancelled: true }); // 중단 뒤 남은 결과는 버린다
       // 이번 설교의 구조·용어 교정을 쌓아 다음 정리에 반영
       // 정리하는 동안 예배 이름·제목 등을 바꿨을 수 있으니 지금 화면의 값을 다시 읽는다
       const now = readMeta();
@@ -1049,12 +1098,20 @@
       flow(2, 'done', '정리 완료', `아래에서 확인하고 드라이브에 저장하세요 · ${S.learnNote}`);
       archive();
     } catch (e) {
-      $('resEmpty').textContent = `정리하지 못했어요: ${e.message}`;
-      $('resActions').hidden = false;
-      flow(2, 'error', '정리 실패', e.message);
+      if (stopFlag || Gemini.isCancel(e)) {
+        // 정리를 중단: 예전 정리본이 있으면 그대로 보여 준다
+        await renderFinal();
+        if (!S.final) $('resEmpty').textContent = "정리를 중단했어요. '정리만 다시 하기'를 누르면 다시 정리해요.";
+        $('resActions').hidden = false;
+        flow(2, 'error', '정리를 중단했어요', "받아쓰기는 그대로 있어요. '정리만 다시 하기'로 다시 할 수 있어요.");
+      } else {
+        $('resEmpty').textContent = `정리하지 못했어요: ${e.message}`;
+        $('resActions').hidden = false;
+        flow(2, 'error', '정리 실패', e.message);
+      }
     }
     if (ownLock && !rec) { try { await wakeLock?.release(); } catch (e) {} wakeLock = null; }
-    finalBusy = false;
+    finalBusy = false; syncStop();
   }
 
   async function renderFinal() {
@@ -1079,6 +1136,7 @@
   async function makeParagraph() {
     if (!S.final || paraBusy) return;
     paraBusy = true;
+    if (!fileBusy && !finalBusy) { stopFlag = false; Gemini.resume(); }
     $('btnPara').disabled = $('btnParaRedo').disabled = true;
     $('paraBox').hidden = false; $('paraText').textContent = '한 문단으로 정리하고 있어요. 30초쯤 걸려요.';
     try {
@@ -1239,7 +1297,7 @@
   $('btnSaveCfg').addEventListener('click', () => { cfg = readCfg(); store.set('mn_cfg', cfg); toast('저장했어요.'); });
   $('btnTest').addEventListener('click', async () => {
     $('testState').textContent = '확인 중…';
-    try { await Gemini.ping(readCfg()); $('testState').textContent = 'Gemini 연결 정상이에요.'; }
+    try { if (!fileBusy && !finalBusy) { stopFlag = false; Gemini.resume(); } await Gemini.ping(readCfg()); $('testState').textContent = 'Gemini 연결 정상이에요.'; }
     catch (e) { $('testState').textContent = e.message; }
   });
   $('btnGoogle').addEventListener('click', async () => {
