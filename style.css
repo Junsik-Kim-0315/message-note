@@ -107,7 +107,10 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 
 /* 고정 진행 막대 */
 .progress { padding: 6px 16px 8px; border-bottom: 1px solid var(--line); background: var(--bg); }
-.progress .track { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.progress .track { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; flex: 1; }
+.progress .prow { display: flex; align-items: center; gap: 10px; }
+.progress .stop-btn { flex: none; font: inherit; font-size: 13px; font-weight: 700; padding: 4px 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--bg); color: inherit; cursor: pointer; }
+.progress .stop-btn.armed { background: var(--rec); border-color: var(--rec); color: #fff; }
 .progress .fill { height: 100%; width: 0; background: #2f6fd6; transition: width .4s; }
 .progress.has-fail .fill { background: var(--rec); }
 .progress .ptext { font-size: 13px; font-weight: 700; margin-top: 4px; }

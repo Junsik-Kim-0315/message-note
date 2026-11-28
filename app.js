@@ -125,6 +125,41 @@
   }
   setInterval(() => { if (S.segments.some((s) => s.waitUntil)) { renderSegments(); } }, 1000);
 
+  // ---------- 중단 ----------
+  // 정리(최종 정리)와 녹음 파일 받아쓰기는 몇 분씩 걸려서, 위 진행 막대의 '중단'으로 멈출 수 있게 한다.
+  // 받아쓴 내용은 지우지 않는다. 실수로 눌러도 괜찮게 한 번 더 눌러야 멈춘다.
+  const stopJobs = { file: null, final: null };
+  // job을 주면 지금 등록된 것이 그 job일 때만 지운다(새 작업이 이미 시작됐으면 그대로). 지웠거나 바꿨으면 true
+  function setStopJob(kind, job, only) {
+    if (only && stopJobs[kind] !== only) return false;
+    stopJobs[kind] = job;
+    syncStop();
+    return true;
+  }
+  let stopArm = 0, stopArmTimer = null;
+  function syncStop() {
+    const live = Object.values(stopJobs).some((j) => j && !j.stopped);
+    const btn = $('btnStop');
+    btn.hidden = !live;
+    if (!live) { stopArm = 0; clearTimeout(stopArmTimer); }
+    btn.textContent = stopArm ? '눌러서 중단' : '중단';
+    btn.classList.toggle('armed', !!stopArm);
+  }
+  $('btnStop').addEventListener('click', () => {
+    if (!stopArm) {
+      stopArm = 1; syncStop();
+      clearTimeout(stopArmTimer); stopArmTimer = setTimeout(() => { stopArm = 0; syncStop(); }, 3000);
+      return;
+    }
+    stopArm = 0; clearTimeout(stopArmTimer);
+    // 정리 중이면 정리를, 아니면 받아쓰기를 멈춘다
+    const kind = stopJobs.final && !stopJobs.final.stopped ? 'final' : 'file';
+    const job = stopJobs[kind];
+    if (!job) return syncStop();
+    job.stop(); syncStop();
+    toast(kind === 'final' ? '정리를 중단하고 있어요.' : '받아쓰기를 중단하고 있어요.');
+  });
+
   function resetFlow() { steps = ['idle', 'idle', 'idle', 'idle']; $('steps').innerHTML = ''; $('banner').hidden = true; flow(0, 'idle'); }
 
   $('sermonDate').addEventListener('change', () => {
@@ -264,15 +299,17 @@
 
   // 받아쓰기 요청 속도 조절: 무료 키는 분당 요청 수 한도가 낮아서(약 10회) 몰아 보내면 429로 실패한다
   let nextSlot = 0;
-  async function rateGate() {
+  async function rateGate(job) {
     const gap = 60000 / Math.max(1, Number(cfg.rpm) || 8);
     const now = Date.now();
     const wait = Math.max(0, nextSlot - now);
     nextSlot = Math.max(now, nextSlot) + gap;
-    if (wait) await new Promise((r) => setTimeout(r, wait));
+    if (wait) await (job ? job.sleep(wait) : new Promise((r) => setTimeout(r, wait)));
   }
 
-  async function transcribeSeg(seg, prevTail) {
+  // job: 녹음 파일 받아쓰기처럼 '중단'할 수 있는 작업이면 넘긴다(실시간 녹음은 없음)
+  async function transcribeSeg(seg, prevTail, job = null) {
+    const c = job ? { ...cfg, job } : cfg;
     let wav = wavs.get(seg.i);
     if (typeof wav === 'function') wav = wav();
     if (!wav) { seg.status = 'failed'; seg.err = '원본 소리가 없어요'; return; }
@@ -281,24 +318,27 @@
     try {
     for (let attempt = 0; attempt < 8; attempt++) {
       try {
-        await rateGate();
+        await rateGate(job);
+        if (job) job.check();
         seg.text = wav.remote
-          ? await Gemini.transcribeRange(cfg, wav.remote, wav.from, wav.to)
+          ? await Gemini.transcribeRange(c, wav.remote, wav.from, wav.to)
           : wav.blob
-            ? await Gemini.transcribe(cfg, wav.blob, '', { mime: wav.mime, approxSec: wav.sec })
-            : await Gemini.transcribe(cfg, wav, prevTail);
+            ? await Gemini.transcribe(c, wav.blob, '', { mime: wav.mime, approxSec: wav.sec })
+            : await Gemini.transcribe(c, wav, prevTail);
         let raw = seg.text;
         seg.text = cleanStt(raw);
         // 실시간 녹음 구간이 비어 돌아오면 짧은 지시로 한 번 더 묻는다
         if (!seg.text && wav instanceof Blob && !wav.remote && !seg.retried) {
           seg.retried = true;
-          await rateGate();
-          try { const again = await Gemini.transcribePlain(cfg, wav); const c = cleanStt(again); if (c) seg.text = c; else raw = `${raw} / ${again}`; } catch (e) {}
+          await rateGate(job);
+          try { const again = await Gemini.transcribePlain(c, wav); const c = cleanStt(again); if (c) seg.text = c; else raw = `${raw} / ${again}`; } catch (e) {}
         }
         seg.raw = seg.text ? '' : String(raw || '').trim().slice(0, 200);
         seg.status = 'done'; seg.err = ''; if (wav instanceof Blob) lastWav = { blob: wav, t: seg.t }; wavs.delete(seg.i);
         return;
       } catch (e) {
+        // 중단: 받아쓴 구간은 두고, 이 구간은 '실패한 구간 다시'로 이어서 할 수 있게 남긴다
+        if (e.stopped) { seg.status = 'failed'; seg.err = '중단함'; seg.text = ''; return; }
         seg.err = e.message;
         const limited = e.status === 429 || e.status === 503;
         if (!limited) other++;
@@ -308,7 +348,7 @@
         if (limited) nextSlot = Math.max(nextSlot, Date.now() + wait);
         seg.waitUntil = Date.now() + wait;
         renderSegments(); updateProgress();
-        await new Promise((r) => setTimeout(r, wait));
+        await (job ? job.sleep(wait) : new Promise((r) => setTimeout(r, wait)));
         seg.waitUntil = 0;
       }
     }
@@ -805,18 +845,21 @@
     }
     showTab('transcript');
     lockScreen();
+    const job = Gemini.newJob(); setStopJob('file', job);
     flow(0, 'active', resume ? '이어서 받아쓰기 준비 중' : '녹음 파일 여는 중', file.name);
     try {
       if (isMp3(file) && file.size > BIG_FILE) await prepareMp3(file, resume);
       else if (file.size > BIG_FILE) await prepareRemote(file, resume);
       else await prepareDecoded(file, resume);
     } catch (e) {
+      setStopJob('file', null);
       flow(0, 'error', '녹음 파일을 준비하지 못했어요', e.message);
       return;
     }
+    if (job.stopped) { setStopJob('file', null); renderAll(); flow(0, 'error', '받아쓰기 중단', '같은 녹음 파일을 다시 고르면 이어서 받아써요'); return; }
     const todo = S.segments.filter((s) => s.status !== 'done' && s.status !== 'gap');
     todo.forEach((s) => { s.status = 'pending'; wavs.set(s.i, () => fileJob.makeSource(s)); });
-    await runFileSegments(todo);
+    await runFileSegments(todo, job);
   }
 
   // 새로 시작할 때 구간 목록을 만든다
@@ -882,22 +925,32 @@
     };
   }
 
-  async function runFileSegments(list) {
+  async function runFileSegments(list, job = Gemini.newJob()) {
+    setStopJob('file', job);
     renderSegments(); persist();
     let done = 0;
     flow(0, 'done', '녹음 파일 준비 완료');
-    const update = () => flow(1, 'active', `받아쓰기 ${done}/${list.length}`, '화면을 켜 둔 채로 기다려 주세요');
+    const update = () => { if (!job.stopped) flow(1, 'active', `받아쓰기 ${done}/${list.length}`, '화면을 켜 둔 채로 기다려 주세요'); };
     update();
     // 2개씩 동시에 받아쓰기 (속도는 rateGate가 조절)
     let next = 0;
     const worker = async () => {
-      while (next < list.length) {
+      while (next < list.length && !job.stopped) {
         const seg = list[next++];
-        await transcribeSeg(seg, '');
+        await transcribeSeg(seg, '', job);
         done++; update(); renderSegments(); persist();
       }
     };
     await Promise.all([worker(), worker()]);
+    if (setStopJob('file', null, job) && job.stopped) {
+      // 시작하지 않은 구간도 '실패한 구간 다시'로 이어서 할 수 있게 표시
+      list.forEach((s) => { if (s.status === 'pending') { s.status = 'failed'; s.err = '중단함'; } });
+      persist(); renderAll();
+      const got = S.segments.filter((s) => s.status === 'done').length;
+      flow(1, 'error', '받아쓰기 중단', `${got ? `받아쓴 ${got}구간은 그대로 있어요. ` : ''}받아쓰기 탭의 '실패한 구간 다시'를 누르면 남은 구간만 이어서 받아써요.`);
+      return;
+    }
+    if (job.stopped) return; // 이미 새 작업이 시작됨
     persist();
     renderAll();
     const failed = S.segments.filter((s) => s.status === 'failed').length;
@@ -990,6 +1043,8 @@
     if (text.length < 50) { flow(1, 'error', '받아쓴 내용이 너무 적어요', '녹음이 제대로 됐는지 받아쓰기 탭에서 확인해 주세요'); toast('받아쓴 내용이 너무 적어서 정리할 수 없어요.'); return; }
     if (finalBusy) return;
     finalBusy = true;
+    const job = Gemini.newJob(); setStopJob('final', job);
+    const hadFinal = !!S.final;
     // 정리 중 화면이 꺼지면 아이폰이 요청을 끊는다('Load failed') → 정리하는 동안 화면을 켜 둔다
     const ownLock = !wakeLock; if (ownLock) await lockScreen();
     autoSaveTranscript();
@@ -1011,10 +1066,12 @@
       window.MN_NUMBERED = Learn.numbered(cleaned.text.length > 50 ? cleaned.text : text); // 순서를 매긴 요점(세 번째는…)과 그 구절
       window.MN_REPEATED = Learn.repeated(cleaned.text.length > 50 ? cleaned.text : text, 10); // 직접 센 반복 상위어 [[말, 횟수]]
       window.MN_SIGNALS = Learn.signals(cleaned.text.length > 50 ? cleaned.text : text); // 설교자가 결론지은 문장(문맥 신호)
-      const doc = await Gemini.finalDoc(cfg, meta, cleaned.text.length > 50 ? cleaned.text : text, (n, info) => {
+      const doc = await Gemini.finalDoc({ ...cfg, job }, meta, cleaned.text.length > 50 ? cleaned.text : text, (n, info) => {
+        if (job.stopped) return;
         if (n === 2) finalStep(2, '정리본 작성', '정리본 후보 2개를 함께 만들어 점검표로 가장 나은 것을 고르고 있어요');
         if (n === 3) finalStep(3, '점검·보완', info?.round === 'shorten' ? '한 장에 맞게 줄이고 있어요' : info?.round ? `점검표에서 빠진 ${info.miss}개 항목을 보완하고 있어요 (보완 ${info.round}회째, 최대 3회)` : '점검표로 빠진 곳이 없는지 확인하고 있어요');
       }, Learn.toText(profile));
+      job.check();
       // 이번 설교의 구조·용어 교정을 쌓아 다음 정리에 반영
       const learned = Learn.merge(profile, doc._notes, { ...meta, title: meta.title || doc.title }, S.id);
       const onDrive = await Learn.save(learned);
@@ -1036,10 +1093,19 @@
       flow(2, 'done', '정리 완료', `아래에서 확인하고 드라이브에 저장하세요 · ${S.learnNote}`);
       archive();
     } catch (e) {
-      $('resEmpty').textContent = `정리하지 못했어요: ${e.message}`;
-      $('resActions').hidden = false;
-      flow(2, 'error', '정리 실패', e.message);
+      if (e.stopped) {
+        // 중단: 받아쓰기는 그대로 두고, 전에 만든 정리본이 있으면 다시 보여 준다
+        if (hadFinal) await renderFinal();
+        else { $('resEmpty').hidden = false; $('resEmpty').textContent = "정리를 중단했어요. 받아쓰기는 그대로 있어요. '정리만 다시 하기'를 누르면 처음부터 다시 정리해요."; }
+        $('resActions').hidden = false;
+        flow(2, 'error', '정리 중단', `받아쓰기는 그대로 있어요${hadFinal ? ' · 아래는 전에 만든 정리본이에요' : ''}. '정리만 다시 하기'로 다시 정리할 수 있어요.`);
+      } else {
+        $('resEmpty').textContent = `정리하지 못했어요: ${e.message}`;
+        $('resActions').hidden = false;
+        flow(2, 'error', '정리 실패', e.message);
+      }
     }
+    setStopJob('final', null, job);
     if (ownLock && !rec) { try { await wakeLock?.release(); } catch (e) {} wakeLock = null; }
     finalBusy = false;
   }

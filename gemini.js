@@ -52,10 +52,27 @@
     return isNewGen(model) ? { thinkingLevel: thinking } : { thinkingBudget: BUDGET[thinking] ?? 4096 };
   }
 
+  // 중단: 사용자가 '중단'을 누르면 그 작업(cfg.job)의 요청을 바로 끊고, 이후 요청도 보내지 않는다.
+  // 작업마다 newJob()으로 만들어 cfg에 실어 보낸다({ ...cfg, job }). 받아쓰기·정리처럼 작업이 따로라 서로 끊지 않는다.
+  function newJob() {
+    const job = {
+      stopped: false, ctrls: new Set(), wakers: new Set(),
+      stop() { if (job.stopped) return; job.stopped = true; job.ctrls.forEach((c) => c.abort()); job.wakers.forEach((w) => w()); },
+      // 기다리는 중(429 대기 등)에도 중단하면 바로 깨어난다
+      sleep(ms) { return new Promise((r) => { if (job.stopped) return r(); const t = setTimeout(done, ms); function done() { clearTimeout(t); job.wakers.delete(done); r(); } job.wakers.add(done); }); },
+      check() { if (job.stopped) throw stoppedError(); },
+    };
+    return job;
+  }
+  function stoppedError() { const e = new Error('중단했어요.'); e.status = 'stopped'; e.stopped = true; return e; }
+
   async function call(cfg, model, parts, { json = false, temperature = 0.3, timeoutMs = 120000, thinking = null, label = '' } = {}) {
     if (!cfg.key) throw new Error('설정에서 Gemini API 키를 넣어주세요.');
+    const job = cfg.job || null;
     const send = async (withThinking) => {
+      if (job) job.check();
       const ctrl = new AbortController();
+      if (job) job.ctrls.add(ctrl);
       const t0 = Date.now();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
@@ -96,12 +113,14 @@
           throw e;
         }
       } catch (e) {
+        if (job?.stopped) { if (label && label !== 'stt') Debug.log('gemini-error', { label, model, status: 'stopped', ms: Date.now() - t0 }); throw stoppedError(); }
         if (e.name === 'AbortError') Debug.log('gemini-error', { label, model, status: 'timeout', ms: Date.now() - t0 });
         else if (e.badJson) Debug.log('gemini-error', { label, model, status: 'bad-json', message: e.message, finish: e.finish || '' });
         if (e.name === 'AbortError') { const t = new Error(`Gemini 응답이 너무 오래 걸려요 (${Math.round(timeoutMs / 1000)}초 넘음).`); t.status = 'timeout'; throw t; }
         throw e;
       } finally {
         clearTimeout(timer);
+        if (job) job.ctrls.delete(ctrl);
       }
     };
     // 네트워크가 잠깐 끊기면(아이폰 'Load failed', 'Failed to fetch') 3초·8초 뒤 다시 보낸다
@@ -111,7 +130,7 @@
         try { return await send(w); } catch (e) {
           if (!isNet(e) || k >= 2) { if (isNet(e)) e.message = `인터넷 연결이 끊겨 정리를 마치지 못했어요(${e.message}). 화면을 켜 둔 채 다시 시도해 주세요.`; throw e; }
           Debug.log('gemini-error', { label, model, status: 'network', message: String(e.message || ''), retry: k + 1 });
-          await new Promise((r) => setTimeout(r, k ? 8000 : 3000));
+          await (job ? job.sleep(k ? 8000 : 3000) : new Promise((r) => setTimeout(r, k ? 8000 : 3000)));
         }
       }
     };
@@ -119,7 +138,7 @@
       return await sendNet(true);
     } catch (e) {
       // JSON이 깨져 왔으면 한 번 더: 문법을 지키라는 말을 덧붙이고 온도를 낮춰 다시 요청
-      if (!e.badJson) throw e;
+      if (!e.badJson || job?.stopped) throw job?.stopped ? stoppedError() : e;
       const note = `\n\n[중요] 앞선 응답의 JSON 문법이 깨졌습니다(${e.truncated ? '길이 초과로 잘림' : '형식 오류'}). 이번에는 올바른 JSON만 출력하세요. 문자열 안에서는 큰따옴표(") 대신 작은따옴표(')나 「」를 쓰고, 항목 사이 쉼표를 빠뜨리지 말고, 인용은 짧게 줄여 전체를 더 간결하게 쓰세요.`;
       parts = parts.map((p, i) => (i === parts.length - 1 && p.text != null ? { text: p.text + note } : p));
       temperature = 0;
@@ -713,12 +732,13 @@ ${transcript}`;
       repeated: window.MN_REPEATED || null, signals: window.MN_SIGNALS || '', numbered: window.MN_NUMBERED || null, vocab: window.MN_VOCAB || null, profile: cap(profileText, 8000) });
     try {
       const out = await finalDocInner(cfg, meta, transcript, onStep, profileText);
+      cfg.job?.check(); // 중간 단계가 중단 오류를 삼켰어도 결과를 내지 않는다
       Debug.log('result', { check: out._check, autoRed: out._autoRed || 0, stated_core: out.stated_core || '', doc: JSON.parse(JSON.stringify({ ...out, _notes: undefined })) });
       Debug.end(`ok ${out._check.filter((c) => c.ok).length}/${out._check.length}`);
       return out;
     } catch (e) {
       Debug.log('final-error', { message: e.message, status: e.status || '' });
-      Debug.end('error');
+      Debug.end(e.stopped ? 'stopped' : 'error');
       throw e;
     }
   }
@@ -928,5 +948,5 @@ ${JSON.stringify(src, null, 1)}`;
     return call(cfg, cfg.anaModel, [{ text: '“확인”이라고만 답하세요.' }], { temperature: 0, timeoutMs: 30000 });
   }
 
-  window.Gemini = { transcribe, transcribePlain, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, checkDoc, pickRef, refClauses, ping };
+  window.Gemini = { newJob, transcribe, transcribePlain, transcribeRange, uploadFile, liveSummary, finalDoc, paragraph, checkDoc, pickRef, refClauses, ping };
 })();
