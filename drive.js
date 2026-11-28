@@ -80,8 +80,17 @@
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metaObj)}\r\n`,
       `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`, blob, `\r\n--${boundary}--`,
     ]);
+    // 이미 올린 파일을 갱신할 때, 예배 이름·날짜가 바뀌어 폴더가 달라졌으면 새 폴더로 옮긴다
+    let move = '';
+    if (id && parent) {
+      try {
+        const cur = await api(`https://www.googleapis.com/drive/v3/files/${id}?fields=parents`);
+        const old = (cur.parents || []).filter((p) => p !== parent);
+        if (old.length || !(cur.parents || []).includes(parent)) move = `&addParents=${parent}${old.length ? `&removeParents=${old.join(',')}` : ''}`;
+      } catch (e) { /* 위치 확인 실패 시 내용만 갱신 */ }
+    }
     const url = id
-      ? `https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=multipart&fields=id,webViewLink`
+      ? `https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=multipart&fields=id,webViewLink${move}`
       : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink';
     return api(url, { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
   }

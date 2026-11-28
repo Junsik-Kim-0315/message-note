@@ -79,8 +79,24 @@
     $('sermonTitle').value = S.meta.title || '';
     $('sermonText').value = S.meta.scripture || '';
   }
+  // 화면에 적힌 설교 정보를 정리본에 맞춘다. 정리하는 동안(몇 분) 예배 이름 등을 바꿔도 결과·PDF·드라이브 폴더·지난 기록에 반영되게
+  // 정리 시작 때 읽은 값이 아니라 지금 화면의 값을 쓴다. 제목·본문은 비어 있으면 AI가 찾은 것을 둔다.
+  function applyMeta(doc, { scriptureOverride = false } = {}) {
+    if (!doc) return;
+    const meta = readMeta();
+    doc.date = meta.date;
+    doc.service_type = meta.service_type;
+    if (meta.preacher) doc.preacher = meta.preacher;
+    if (meta.title) doc.title = meta.title;
+    if (meta.scripture && (scriptureOverride || !doc.scripture_main)) doc.scripture_main = meta.scripture;
+  }
   ['sermonDate', 'serviceType', 'preacher', 'sermonTitle', 'sermonText'].forEach((id) => $(id).addEventListener('change', () => {
     persist(); store.set('mn_lastmeta', { service_type: $('serviceType').value, preacher: $('preacher').value.trim() });
+    // 정리가 끝난 뒤 바꿔도 정리본·PDF에 바로 반영 (정리 중이면 정리가 끝날 때 반영됨)
+    if (S.final && !finalBusy) {
+      applyMeta(S.final, { scriptureOverride: id === 'sermonText' });
+      pdfCache = null; persist(); renderFinal(); archive();
+    }
   }));
 
   // ---------- 진행 단계 표시 ----------
@@ -130,7 +146,6 @@
   $('sermonDate').addEventListener('change', () => {
     if (!$('sermonDate').value) $('sermonDate').value = today();
     S.meta.date = $('sermonDate').value;
-    if (S.final) { S.final.date = S.meta.date; pdfCache = null; persist(); renderFinal(); }
   });
 
   // ---------- 받아쓰기 목록 ----------
@@ -1016,21 +1031,19 @@
         if (n === 3) finalStep(3, '점검·보완', info?.round === 'shorten' ? '한 장에 맞게 줄이고 있어요' : info?.round ? `점검표에서 빠진 ${info.miss}개 항목을 보완하고 있어요 (보완 ${info.round}회째, 최대 3회)` : '점검표로 빠진 곳이 없는지 확인하고 있어요');
       }, Learn.toText(profile));
       // 이번 설교의 구조·용어 교정을 쌓아 다음 정리에 반영
-      const learned = Learn.merge(profile, doc._notes, { ...meta, title: meta.title || doc.title }, S.id);
+      // 정리하는 동안 예배 이름·제목 등을 바꿨을 수 있으니 지금 화면의 값을 다시 읽는다
+      const now = readMeta();
+      const learned = Learn.merge(profile, doc._notes, { ...now, preacher: now.preacher || meta.preacher, title: now.title || doc.title }, S.id);
       const onDrive = await Learn.save(learned);
       window.MN_TERMS = Learn.termsText(learned);
       S.learnNote = `설교 패턴 학습: ${learned.preacher} ${learned.sermons}편 누적${onDrive ? ' (드라이브에도 저장)' : ''}`;
-      doc.date = meta.date;
-      doc.service_type = meta.service_type;
-      if (meta.preacher) doc.preacher = meta.preacher;
-      if (meta.title) doc.title = meta.title;
-      if (meta.scripture && !doc.scripture_main) doc.scripture_main = meta.scripture;
+      applyMeta(doc);
       // 다시 정리해도 드라이브의 같은 파일을 갱신하도록 파일 id는 남겨 둔다
       if (S.saved) S.driveIds = { pdfId: S.saved.pdfId, txtId: S.saved.txtId };
       doc.app_version = window.APP_VERSION || '';
       S.final = doc; S.saved = null; pdfCache = null;
-      if (!meta.title && doc.title) $('sermonTitle').value = doc.title;
-      if (!meta.scripture && doc.scripture_main) $('sermonText').value = doc.scripture_main;
+      if (!$('sermonTitle').value.trim() && doc.title) $('sermonTitle').value = doc.title;
+      if (!$('sermonText').value.trim() && doc.scripture_main) $('sermonText').value = doc.scripture_main;
       persist();
       await renderFinal();
       flow(2, 'done', '정리 완료', `아래에서 확인하고 드라이브에 저장하세요 · ${S.learnNote}`);
